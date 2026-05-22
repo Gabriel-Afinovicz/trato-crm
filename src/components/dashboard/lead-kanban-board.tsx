@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { useLeadFilters } from "@/hooks/use-lead-filters";
 import type { PipelineStage, Specialty } from "@/lib/types/database";
 import type {
   KanbanLead,
@@ -42,6 +43,7 @@ interface LeadKanbanBoardProps {
   stages: PipelineStage[];
   specialties: Specialty[];
   lastActivityByLead: Record<string, string>;
+  initialRange: { start: string; end: string };
   /**
    * Notifica o pai sempre que o conjunto de leads do board muda
    * (mover entre etapas, reordenar, editar). Usado para manter
@@ -55,9 +57,47 @@ interface LeadKanbanBoardProps {
    * possam refletir a mesma ordenação em tempo real.
    */
   onStagesChange?: (stages: PipelineStage[]) => void;
+  /**
+   * Acionado depois que um lead muda de etapa (DnD ou menu). O pai
+   * controla a mini-dash exibida no header das tabs e usa este hook
+   * para refazer o fetch agregado.
+   */
+  onLeadMoved?: () => void;
 }
 
 type BoardState = Record<string, KanbanLead[]>;
+
+const KANBAN_PAGE_SIZE = 200;
+
+/**
+ * Para cada stage, carrega a primeira página de leads do período via
+ * `/api/leads?stageId=…`. Isso preserva o comportamento de Kanban
+ * com todas as colunas visíveis sem trazer todos os leads de uma vez.
+ */
+async function fetchAllPagesByStage(
+  companyId: string,
+  range: { start: string; end: string },
+  stages: PipelineStage[]
+): Promise<BoardState> {
+  const results = await Promise.all(
+    stages.map(async (stage) => {
+      const url = new URL("/api/leads", window.location.origin);
+      url.searchParams.set("companyId", companyId);
+      url.searchParams.set("start", range.start);
+      url.searchParams.set("end", range.end);
+      url.searchParams.set("stageId", stage.id);
+      url.searchParams.set("orderBy", "kanban_position_asc");
+      url.searchParams.set("pageSize", String(KANBAN_PAGE_SIZE));
+      const res = await fetch(url.toString());
+      if (!res.ok) return { stageId: stage.id, items: [] as KanbanLead[] };
+      const data = (await res.json()) as { items: KanbanLead[] };
+      return { stageId: stage.id, items: data.items ?? [] };
+    })
+  );
+  const next: BoardState = {};
+  for (const r of results) next[r.stageId] = r.items;
+  return next;
+}
 
 function groupByStage(leads: KanbanLead[], stages: PipelineStage[]): BoardState {
   const base: BoardState = {};
@@ -98,14 +138,36 @@ export function LeadKanbanBoard({
   stages: initialStages,
   specialties,
   lastActivityByLead,
+  initialRange,
   onLeadsChange,
   onStagesChange,
+  onLeadMoved,
 }: LeadKanbanBoardProps) {
   const { companyId } = useCurrentCompany();
+  const filters = useLeadFilters();
   const [stages, setStages] = useState<PipelineStage[]>(initialStages);
   const [board, setBoard] = useState<BoardState>(() =>
     groupByStage(initialLeads, initialStages)
   );
+  const [isFetching, setIsFetching] = useState(false);
+
+  // Refs para a barra de rolagem horizontal espelhada no topo do board.
+  // O `columnsRef` é o container real (flex de colunas). `topScrollRef`
+  // é uma faixa fina acima que espelha o `scrollLeft` — o usuário enxerga
+  // a barra horizontal lá em cima, sem precisar descer toda a tela.
+  const boardWrapperRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const columnsRef = useRef<HTMLDivElement>(null);
+  const [columnsInnerWidth, setColumnsInnerWidth] = useState(0);
+  const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
+
+  // Período efetivo: usa URL params se houver, senão o initial (mês corrente).
+  const effectiveRange = useMemo(() => {
+    return {
+      start: filters.state.start ?? initialRange.start,
+      end: filters.state.end ?? initialRange.end,
+    };
+  }, [filters.state.start, filters.state.end, initialRange]);
 
   const onLeadsChangeRef = useRef(onLeadsChange);
   useEffect(() => {
@@ -234,8 +296,18 @@ export function LeadKanbanBoard({
     return cells;
   }
 
+  // Filtro de categorias: ocultamos stages cuja categoria não está
+  // selecionada. Quando o filtro está vazio, mostra TODAS as colunas
+  // (comportamento legado preservado para usuários antigos).
+  const selectedCategories = filters.state.categories;
+  const visibleStages = useMemo(() => {
+    if (selectedCategories.length === 0) return stages;
+    const set = new Set(selectedCategories);
+    return stages.filter((s) => (s.category ? set.has(s.category) : false));
+  }, [stages, selectedCategories]);
+
   const columns = useMemo(() => {
-    return stages.map((stage) => {
+    return visibleStages.map((stage) => {
       const all = board[stage.id] ?? [];
       const filtered = all.filter(passesFilters);
       return {
@@ -247,7 +319,7 @@ export function LeadKanbanBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     board,
-    stages,
+    visibleStages,
     search,
     assigneeFilter,
     specialtyFilter,
@@ -258,6 +330,150 @@ export function LeadKanbanBoard({
     dentists,
     lastActivityByLead,
   ]);
+
+  // Refetch quando o período mudar (ou na primeira mudança via URL).
+  // Não refazemos quando categorias mudam — elas só escondem colunas.
+  const lastFetchedRange = useRef(initialRange);
+  useEffect(() => {
+    if (!companyId) return;
+    const same =
+      lastFetchedRange.current.start === effectiveRange.start &&
+      lastFetchedRange.current.end === effectiveRange.end;
+    if (same) return;
+    lastFetchedRange.current = effectiveRange;
+
+    let cancelled = false;
+    setIsFetching(true);
+    void fetchAllPagesByStage(companyId, effectiveRange, stages)
+      .then((boardData) => {
+        if (cancelled) return;
+        setBoard(boardData);
+      })
+      .catch(() => {
+        /* silencia — mantém visão atual */
+      })
+      .finally(() => {
+        if (!cancelled) setIsFetching(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, effectiveRange, stages]);
+
+  // Mede a largura interna do flex de colunas para dimensionar o "track"
+  // espelhado no topo. Re-observa quando o número de colunas muda
+  // (filtros de categoria, criação de stage etc.). `hasHorizontalOverflow`
+  // controla a visibilidade da barra superior — quando tudo cabe, escondemos.
+  useEffect(() => {
+    const cols = columnsRef.current;
+    if (!cols) return;
+
+    // `raf` é re-utilizado para coalescer múltiplos triggers do
+    // ResizeObserver no mesmo frame (especialmente durante drag, em
+    // que o layout pode oscilar rapidamente). Isso evita loops de
+    // "Maximum update depth exceeded" quando `hasHorizontalOverflow`
+    // ficaria alternando entre true/false na mesma renderização.
+    let scheduled = 0;
+    let lastInner = -1;
+    let lastOverflow: boolean | null = null;
+    const measure = () => {
+      const sw = cols.scrollWidth;
+      const cw = cols.clientWidth;
+      const overflow = sw > cw + 1;
+      if (sw !== lastInner) {
+        lastInner = sw;
+        setColumnsInnerWidth(sw);
+      }
+      if (overflow !== lastOverflow) {
+        lastOverflow = overflow;
+        setHasHorizontalOverflow(overflow);
+      }
+    };
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = requestAnimationFrame(() => {
+        scheduled = 0;
+        measure();
+      });
+    };
+    schedule();
+    // O ResizeObserver do container só dispara quando seu próprio
+    // `clientWidth` muda — observar cada coluna filha cobre o caso em
+    // que apenas o `scrollWidth` aumenta (criação/remoção de stages).
+    // Importante: `board` NÃO é uma dep aqui — mover cards otimisticamente
+    // dentro do mesmo conjunto de colunas não muda a largura horizontal.
+    const ro = new ResizeObserver(schedule);
+    ro.observe(cols);
+    for (const child of Array.from(cols.children)) {
+      ro.observe(child as Element);
+    }
+    return () => {
+      if (scheduled) cancelAnimationFrame(scheduled);
+      ro.disconnect();
+    };
+  }, [visibleStages.length, companyId, stages.length]);
+
+  // Sincroniza scrollLeft em dois sentidos entre a barra superior e as
+  // colunas reais. O `lock` evita loop infinito quando um listener
+  // dispara o outro.
+  //
+  // Importante: `hasHorizontalOverflow` está nas deps porque a barra
+  // superior só é renderizada quando há overflow. Sem isso, no primeiro
+  // render `topScrollRef.current` é null e os listeners jamais são
+  // instalados — o usuário consegue arrastar mas o container não rola.
+  useEffect(() => {
+    if (!hasHorizontalOverflow) return;
+    const cols = columnsRef.current;
+    const top = topScrollRef.current;
+    if (!cols || !top) return;
+    let lock = false;
+    const onCols = () => {
+      if (lock) return;
+      lock = true;
+      top.scrollLeft = cols.scrollLeft;
+      lock = false;
+    };
+    const onTop = () => {
+      if (lock) return;
+      lock = true;
+      cols.scrollLeft = top.scrollLeft;
+      lock = false;
+    };
+    cols.addEventListener("scroll", onCols, { passive: true });
+    top.addEventListener("scroll", onTop, { passive: true });
+    // Garante alinhamento inicial.
+    top.scrollLeft = cols.scrollLeft;
+    return () => {
+      cols.removeEventListener("scroll", onCols);
+      top.removeEventListener("scroll", onTop);
+    };
+  }, [hasHorizontalOverflow]);
+
+  // Wheel containment: dentro de uma coluna o scroll vertical rola só
+  // os cards (graças a `overscroll-contain` no body); fora de qualquer
+  // coluna (área entre/abaixo) bloqueamos o evento — assim a página
+  // inteira não desce ao girar a roda sobre o board.
+  useEffect(() => {
+    const wrapper = boardWrapperRef.current;
+    if (!wrapper) return;
+    function onWheel(e: WheelEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-kanban-column-body="true"]')) return;
+      e.preventDefault();
+    }
+    // `passive: false` é obrigatório para que `preventDefault` tenha
+    // efeito em eventos de roda — React 17+ marca onWheel como passive.
+    wrapper.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrapper.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Notifica o pai (que mantém a mini-dash) sempre que um lead muda
+  // de etapa. A atualização otimista das colunas já foi feita no
+  // client; só o agregado precisa ser recontado no servidor.
+  const refetchMinidash = useCallback(() => {
+    onLeadMoved?.();
+  }, [onLeadMoved]);
 
   function findStageOf(leadId: string): string | null {
     for (const stageId of Object.keys(board)) {
@@ -289,42 +505,18 @@ export function LeadKanbanBoard({
     dragSourceStageIdRef.current = findStageOf(id);
   }
 
-  function handleDragOver(event: DragOverEvent) {
-    const { active, over } = event;
-    if (!over) return;
-    if (active.data.current?.type !== "card") return;
-
-    const activeIdStr = String(active.id);
-    const overIdStr = String(over.id);
-    const fromStage = findStageOf(activeIdStr);
-    const target = resolveTargetStage(overIdStr);
-
-    if (!fromStage || !target) return;
-    if (fromStage === target.stageId) return;
-
-    setBoard((prev) => {
-      const source = prev[fromStage];
-      const dest = prev[target.stageId] ?? [];
-      const idx = source.findIndex((l) => l.id === activeIdStr);
-      if (idx === -1) return prev;
-      const targetStage = stageById.get(target.stageId);
-      const moving: KanbanLead = {
-        ...source[idx],
-        stage_id: target.stageId,
-        status: targetStage?.legacy_status ?? source[idx].status,
-      };
-      const overIndex = dest.findIndex((l) => l.id === overIdStr);
-      const insertAt = overIndex === -1 ? dest.length : overIndex;
-      return {
-        ...prev,
-        [fromStage]: source.filter((l) => l.id !== activeIdStr),
-        [target.stageId]: [
-          ...dest.slice(0, insertAt),
-          moving,
-          ...dest.slice(insertAt),
-        ],
-      };
-    });
+  // `onDragOver` antigamente movia o card entre colunas otimisticamente,
+  // mas isso causava cascatas de setState a cada pixel do drag (o dnd-kit
+  // dispara este evento ~60x/s), levando ao "Maximum update depth
+  // exceeded" quando o usuário arrastava rapidamente sobre várias colunas.
+  //
+  // Solução: aceitar que o card só "salta" de coluna no momento em que
+  // o usuário solta (handleDragEnd). Durante o arrasto, o DragOverlay
+  // continua mostrando o card seguindo o cursor e o `useDroppable`
+  // destaca visualmente a coluna alvo via `isOver` — sem nenhum
+  // setState no componente pai.
+  function handleDragOver(_event: DragOverEvent) {
+    /* intencionalmente vazio — ver comentário acima */
   }
 
   async function persistMove(
@@ -351,8 +543,86 @@ export function LeadKanbanBoard({
     if (rpcErr) {
       setBoard(snapshot);
       setError("Falha ao mover o lead. Alterações revertidas.");
+      return;
     }
+
+    // O move pode ter mudado a categoria do lead — atualiza a minidash.
+    void refetchMinidash();
   }
+
+  /**
+   * Acionado pelo menu "..." do card. Permite mover para qualquer
+   * stage — inclusive os escondidos pelo filtro de categoria.
+   */
+  const handleMoveToStage = useCallback(
+    (leadId: string, toStageId: string) => {
+      const fromStageId = (() => {
+        for (const sId of Object.keys(board)) {
+          if (board[sId].some((l) => l.id === leadId)) return sId;
+        }
+        return null;
+      })();
+      if (!fromStageId || fromStageId === toStageId) return;
+
+      const snapshot: BoardState = {};
+      for (const sId of Object.keys(board)) snapshot[sId] = [...board[sId]];
+
+      const lead = board[fromStageId].find((l) => l.id === leadId);
+      if (!lead) return;
+      const targetStage = stageById.get(toStageId);
+
+      const newSource = board[fromStageId]
+        .filter((l) => l.id !== leadId)
+        .map((l, i) => ({ ...l, kanban_position: i }));
+      const moving: KanbanLead = {
+        ...lead,
+        stage_id: toStageId,
+        status: targetStage?.legacy_status ?? lead.status,
+        kanban_position: 0,
+      };
+      const newDest = [
+        moving,
+        ...(board[toStageId] ?? []).map((l, i) => ({
+          ...l,
+          kanban_position: i + 1,
+        })),
+      ];
+
+      setBoard({
+        ...board,
+        [fromStageId]: newSource,
+        [toStageId]: newDest,
+      });
+
+      const destOrderedIds = newDest.map((l) => l.id);
+      const sourceOrderedIds = newSource.map((l) => l.id);
+
+      if (targetStage?.is_lost) {
+        setPendingLost({
+          lead: moving,
+          destOrderedIds,
+          sourceOrderedIds,
+          fromStageId,
+          toStageId,
+          specialtyId: null,
+          snapshot,
+        });
+        return;
+      }
+
+      void persistMove(
+        leadId,
+        fromStageId,
+        toStageId,
+        destOrderedIds,
+        sourceOrderedIds,
+        null,
+        snapshot
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [board, stageById]
+  );
 
   function snapshotBoard(): BoardState {
     const s: BoardState = {};
@@ -467,17 +737,29 @@ export function LeadKanbanBoard({
       return;
     }
 
-    const destColumn = (board[toStageId] ?? []).map((l, i) => ({
-      ...l,
-      kanban_position: i,
-      ...(l.id === activeIdStr && specialtyToSet !== null
-        ? { specialty_id: specialtyToSet }
-        : {}),
-    }));
-    const sourceColumn = (board[fromStageId] ?? []).map((l, i) => ({
-      ...l,
-      kanban_position: i,
-    }));
+    // Como o `onDragOver` não mexe mais no board, aqui precisamos
+    // efetivamente mover o card da coluna de origem para a de destino,
+    // inserindo na posição calculada a partir do `over.id`.
+    const sourceArr = board[fromStageId] ?? [];
+    const movingIdx = sourceArr.findIndex((l) => l.id === activeIdStr);
+    if (movingIdx === -1) return;
+    const movingLead: KanbanLead = {
+      ...sourceArr[movingIdx],
+      stage_id: toStageId,
+      status: toStage?.legacy_status ?? sourceArr[movingIdx].status,
+      ...(specialtyToSet !== null ? { specialty_id: specialtyToSet } : {}),
+    };
+    const destArr = board[toStageId] ?? [];
+    const overIndex = destArr.findIndex((l) => l.id === overIdStr);
+    const insertAt = overIndex === -1 ? destArr.length : overIndex;
+    const destColumn = [
+      ...destArr.slice(0, insertAt),
+      movingLead,
+      ...destArr.slice(insertAt),
+    ].map((l, i) => ({ ...l, kanban_position: i }));
+    const sourceColumn = sourceArr
+      .filter((l) => l.id !== activeIdStr)
+      .map((l, i) => ({ ...l, kanban_position: i }));
 
     setBoard({
       ...board,
@@ -487,7 +769,6 @@ export function LeadKanbanBoard({
 
     const destOrderedIds = destColumn.map((l) => l.id);
     const sourceOrderedIds = sourceColumn.map((l) => l.id);
-    const movingLead = destColumn.find((l) => l.id === activeIdStr);
 
     if (laneMode === "dentist" && target.laneKey) {
       const newAssignee = target.laneKey === "none" ? null : target.laneKey;
@@ -497,7 +778,7 @@ export function LeadKanbanBoard({
         .eq("id", activeIdStr);
     }
 
-    if (toStage?.is_lost && movingLead) {
+    if (toStage?.is_lost) {
       setPendingLost({
         lead: movingLead,
         destOrderedIds,
@@ -546,17 +827,22 @@ export function LeadKanbanBoard({
   }, [board, lastActivityByLead]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[220px]">
+    // `flex min-h-0` é o gatilho que permite o board interno crescer
+    // dentro do container fixado pela página — sem isso, o flex-1 do
+    // <DndContext> não respeita a altura do parent.
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {/* Linha de filtros granulares do Kanban — bem compacta. A barra
+          principal (mini-dash + período) já está no header das tabs. */}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <div className="relative min-w-[200px] flex-1">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, telefone ou e-mail..."
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pl-9 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            placeholder="Buscar nome, telefone ou e-mail..."
+            className="w-full rounded-md border border-gray-300 bg-white px-2.5 py-1 pl-7 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/30"
           />
           <svg
-            className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+            className="absolute left-2 top-1.5 h-3.5 w-3.5 text-gray-400"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2}
@@ -573,7 +859,7 @@ export function LeadKanbanBoard({
         <select
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
         >
           <option value="all">Todos os responsáveis</option>
           <option value="unassigned">Sem responsável</option>
@@ -587,7 +873,7 @@ export function LeadKanbanBoard({
         <select
           value={specialtyFilter}
           onChange={(e) => setSpecialtyFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
         >
           <option value="all">Todas especialidades</option>
           <option value="none">Sem especialidade</option>
@@ -598,19 +884,19 @@ export function LeadKanbanBoard({
           ))}
         </select>
 
-        <div className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 text-xs">
+        <div className="inline-flex rounded-md border border-gray-300 bg-white p-0.5">
           {(["none", "dentist"] as LaneMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               onClick={() => setLaneMode(mode)}
-              className={`rounded-md px-2.5 py-1.5 font-medium transition-colors ${
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                 laneMode === mode
                   ? "bg-blue-600 text-white"
                   : "text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {mode === "none" ? "Sem raias" : "Raias por Dentista"}
+              {mode === "none" ? "Sem raias" : "Raias"}
             </button>
           ))}
         </div>
@@ -618,13 +904,13 @@ export function LeadKanbanBoard({
         <button
           type="button"
           onClick={() => setShowInactiveOnly((v) => !v)}
-          className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+          className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
             showInactiveOnly
               ? "border-amber-400 bg-amber-50 text-amber-700"
               : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
           }`}
         >
-          Inativos (30+ dias) · {stats.inactive}
+          Inativos · {stats.inactive}
         </button>
 
         {(search ||
@@ -641,7 +927,7 @@ export function LeadKanbanBoard({
               setShowInactiveOnly(false);
               setLaneMode("none");
             }}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
           >
             Limpar
           </button>
@@ -675,42 +961,95 @@ export function LeadKanbanBoard({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="flex gap-3 overflow-x-auto pb-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300">
-          <SortableContext
-            items={stages.map((s) => columnSortableId(s.id))}
-            strategy={horizontalListSortingStrategy}
-          >
-            {columns.map((col) => (
-              <KanbanColumn
-                key={col.stage.id}
-                stage={col.stage}
-                cells={col.cells}
-                totalCount={col.totalCount}
-                domain={domain}
-                lastActivityByLead={lastActivityByLead}
-                showLaneLabel={laneMode !== "none"}
-                onOpenEdit={setEditingLeadId}
-                onEditStage={setEditingStage}
-              />
-            ))}
-          </SortableContext>
-          {companyId && (
-            <AddStageColumn
-              companyId={companyId}
-              nextPosition={
-                stages
-                  .filter((s) => !s.is_lost)
-                  .reduce((m, s) => Math.max(m, s.position), 0) + 1
-              }
-              onCreated={(stage) => {
-                setStages((prev) => [...prev, stage]);
-                setBoard((prev) => ({ ...prev, [stage.id]: [] }));
-              }}
-              onError={(message) =>
-                setError(`Falha ao criar etapa: ${message}`)
-              }
-            />
+        <div ref={boardWrapperRef} className="relative flex min-h-0 flex-1 flex-col">
+          {/* Barra de rolagem horizontal espelhada acima das colunas.
+              Sempre ocupa altura visível quando há overflow (track largo
+              e thumb com cor forte para ficar evidente). */}
+          {hasHorizontalOverflow && (
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Rolar colunas para a esquerda"
+                onClick={() => {
+                  const cols = columnsRef.current;
+                  if (cols) cols.scrollBy({ left: -320, behavior: "smooth" });
+                }}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                </svg>
+              </button>
+              <div
+                ref={topScrollRef}
+                className="h-4 flex-1 overflow-x-auto overflow-y-hidden rounded-full bg-gray-200 [&::-webkit-scrollbar]:h-4 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-500 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-gray-200 [&::-webkit-scrollbar-track]:bg-gray-200 [&::-webkit-scrollbar-track]:rounded-full"
+                aria-hidden
+              >
+                <div
+                  style={{
+                    width: columnsInnerWidth ? `${columnsInnerWidth}px` : "100%",
+                    height: "1px",
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                aria-label="Rolar colunas para a direita"
+                onClick={() => {
+                  const cols = columnsRef.current;
+                  if (cols) cols.scrollBy({ left: 320, behavior: "smooth" });
+                }}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                </svg>
+              </button>
+            </div>
           )}
+
+          <div
+            ref={columnsRef}
+            className="flex min-h-0 flex-1 gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <SortableContext
+              items={visibleStages.map((s) => columnSortableId(s.id))}
+              strategy={horizontalListSortingStrategy}
+            >
+              {columns.map((col) => (
+                <KanbanColumn
+                  key={col.stage.id}
+                  stage={col.stage}
+                  cells={col.cells}
+                  totalCount={col.totalCount}
+                  domain={domain}
+                  lastActivityByLead={lastActivityByLead}
+                  showLaneLabel={laneMode !== "none"}
+                  onOpenEdit={setEditingLeadId}
+                  onEditStage={setEditingStage}
+                  allStages={stages}
+                  onMoveToStage={handleMoveToStage}
+                />
+              ))}
+            </SortableContext>
+            {companyId && (
+              <AddStageColumn
+                companyId={companyId}
+                nextPosition={
+                  stages
+                    .filter((s) => !s.is_lost)
+                    .reduce((m, s) => Math.max(m, s.position), 0) + 1
+                }
+                onCreated={(stage) => {
+                  setStages((prev) => [...prev, stage]);
+                  setBoard((prev) => ({ ...prev, [stage.id]: [] }));
+                }}
+                onError={(message) =>
+                  setError(`Falha ao criar etapa: ${message}`)
+                }
+              />
+            )}
+          </div>
         </div>
 
         <DragOverlay dropAnimation={null}>
@@ -736,6 +1075,7 @@ export function LeadKanbanBoard({
               return next;
             });
             setEditingLeadId(null);
+            void refetchMinidash();
           }}
         />
       )}
@@ -784,6 +1124,7 @@ export function LeadKanbanBoard({
               reason
             );
             setPendingLost(null);
+            void refetchMinidash();
           }}
         />
       )}

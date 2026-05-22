@@ -2,17 +2,29 @@ import { cache } from "react";
 import { createClient } from "./server";
 import type {
   ActivityDetailed,
+  AnaliticoKpis,
+  ClinicAnalyticsGoals,
   CustomField,
   CustomFieldValue,
-  DashboardAnalytics,
   Lead,
   LeadDetailed,
   PipelineStage,
   Specialty,
-  StageFunnelRow,
   Tag,
   User,
 } from "@/lib/types/database";
+
+/**
+ * Default das metas analíticas aplicado quando a clínica ainda não definiu
+ * valores em `companies.settings.analytics_goals`. Mantém uma única fonte
+ * de verdade entre server (dashboard) e client (form de configuração) para
+ * que o aviso "estamos usando padrões" reflita o mesmo conjunto.
+ */
+export const DEFAULT_CLINIC_GOALS: ClinicAnalyticsGoals = {
+  appointment_pct: 40,
+  attendance_pct: 40,
+  closing_pct: 30,
+};
 
 export const getDashboardData = cache(async (companyId: string) => {
   const supabase = await createClient();
@@ -29,80 +41,90 @@ export const getDashboardData = cache(async (companyId: string) => {
   };
 });
 
-export type AnalyticsPeriod = "today" | "7d" | "30d" | "month";
-
-function periodToDates(period: AnalyticsPeriod): { start: Date; end: Date } {
-  const now = new Date();
-  const end = new Date(now);
-  end.setMilliseconds(999);
-
-  switch (period) {
-    case "today": {
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      return { start, end };
-    }
-    case "7d": {
-      const start = new Date(now);
-      start.setDate(start.getDate() - 7);
-      start.setHours(0, 0, 0, 0);
-      return { start, end };
-    }
-    case "30d": {
-      const start = new Date(now);
-      start.setDate(start.getDate() - 30);
-      start.setHours(0, 0, 0, 0);
-      return { start, end };
-    }
-    case "month": {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      return { start, end };
-    }
-  }
+/**
+ * Intervalo `[start, end)` cobrindo o mês corrente — do dia 1 às 00:00
+ * até o dia 1 do mês seguinte às 00:00. Calculado no fuso local do
+ * servidor; em produção (Vercel/SP) coincide com o calendário do
+ * cliente. Para esclarecer fuso futuramente, mover para um campo
+ * `companies.timezone`.
+ */
+export function defaultMonthRange(now: Date = new Date()): {
+  start: Date;
+  end: Date;
+} {
+  const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+  return { start, end };
 }
 
-export async function getAnalyticsDashboard(
+const EMPTY_KPIS: AnaliticoKpis = {
+  total_leads: 0,
+  total_agendamentos: 0,
+  total_comparecimentos: 0,
+  total_fechamentos: 0,
+  fechamentos_follow_up: 0,
+  soma_fechamento: 0,
+  soma_entrada: 0,
+  ticket_medio: 0,
+};
+
+/**
+ * Carrega os KPIs executivos da aba "Analítico". A RPC roda no banco
+ * com `SECURITY DEFINER` e respeita RLS via `company_id`. Devolve um
+ * objeto-zero quando a clínica não tem nenhum dado no período, evitando
+ * branches nulos no cliente.
+ */
+export async function getAnaliticoKpis(
   companyId: string,
-  period: AnalyticsPeriod = "30d"
-): Promise<{ kpis: DashboardAnalytics; funnel: StageFunnelRow[] }> {
+  range: { start: Date; end: Date }
+): Promise<AnaliticoKpis> {
   const supabase = await createClient();
-  const { start, end } = periodToDates(period);
+  const { data } = await supabase.rpc("get_analitico_kpis", {
+    p_company_id: companyId,
+    p_start: range.start.toISOString(),
+    p_end: range.end.toISOString(),
+  });
+  return (data as unknown as AnaliticoKpis) ?? EMPTY_KPIS;
+}
 
-  const [kpisRes, funnelRes] = await Promise.all([
-    supabase.rpc("get_dashboard_analytics", {
-      p_company_id: companyId,
-      p_start: start.toISOString(),
-      p_end: end.toISOString(),
-    }),
-    supabase.rpc("get_stage_funnel", {
-      p_company_id: companyId,
-      p_start: start.toISOString(),
-      p_end: end.toISOString(),
-    }),
-  ]);
+/**
+ * Lê as metas analíticas da clínica em `companies.settings.analytics_goals`.
+ * Retorna `{ goals, isDefault }` para que o painel mostre o aviso de
+ * "padrões em uso" quando o admin nunca configurou nada.
+ */
+export async function getClinicGoals(
+  companyId: string
+): Promise<{ goals: ClinicAnalyticsGoals; isDefault: boolean }> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("companies")
+    .select("settings")
+    .eq("id", companyId)
+    .maybeSingle();
 
-  const empty: DashboardAnalytics = {
-    new_leads: 0,
-    prev_new_leads: 0,
-    appointments_count: 0,
-    prev_appointments_count: 0,
-    today_appointments: 0,
-    confirmed_appointments: 0,
-    no_shows: 0,
-    prev_no_shows: 0,
-    active_leads: 0,
-    won_leads: 0,
-    lost_in_period: 0,
-    inactive_leads_30d: 0,
-    leads_without_appointment: 0,
-    confirmation_rate: 0,
-    no_show_rate: 0,
-  };
+  const settings =
+    (data?.settings as Record<string, unknown> | null | undefined) ?? null;
+  const raw = settings?.analytics_goals as
+    | Partial<ClinicAnalyticsGoals>
+    | undefined;
 
-  return {
-    kpis: (kpisRes.data as unknown as DashboardAnalytics) ?? empty,
-    funnel: (funnelRes.data as unknown as StageFunnelRow[]) ?? [],
-  };
+  if (
+    raw &&
+    typeof raw.appointment_pct === "number" &&
+    typeof raw.attendance_pct === "number" &&
+    typeof raw.closing_pct === "number"
+  ) {
+    return {
+      goals: {
+        appointment_pct: raw.appointment_pct,
+        attendance_pct: raw.attendance_pct,
+        closing_pct: raw.closing_pct,
+      },
+      isDefault: false,
+    };
+  }
+
+  return { goals: { ...DEFAULT_CLINIC_GOALS }, isDefault: true };
 }
 
 export const getLeadActivities = cache(
@@ -144,12 +166,39 @@ export type KanbanLead = Pick<
 
 export type KanbanOperator = Pick<User, "id" | "name" | "is_dentist">;
 
-export const getKanbanData = cache(async (companyId: string) => {
+export interface GetKanbanDataOptions {
+  /**
+   * Filtra leads pelo `created_at` (cohort do período). Quando ausente,
+   * traz todos os leads — comportamento legado preservado para callers
+   * que ainda não controlam período (ex: callers internos antigos).
+   */
+  range?: { start: Date; end: Date };
+}
+
+export const getKanbanData = async (
+  companyId: string,
+  options: GetKanbanDataOptions = {}
+) => {
   const supabase = await createClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  let leadsQuery = supabase
+    .from("vw_leads_detailed")
+    .select(
+      "id,name,status,stage_id,specialty_id,specialty_name,specialty_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at"
+    )
+    .eq("company_id", companyId)
+    .order("kanban_position", { ascending: true })
+    .order("created_at", { ascending: false });
+
+  if (options.range) {
+    leadsQuery = leadsQuery
+      .gte("created_at", options.range.start.toISOString())
+      .lt("created_at", options.range.end.toISOString());
+  }
 
   const [
     leadsRes,
@@ -159,14 +208,7 @@ export const getKanbanData = cache(async (companyId: string) => {
     lastActivityRes,
     userStageOrderRes,
   ] = await Promise.all([
-    supabase
-      .from("vw_leads_detailed")
-      .select(
-        "id,name,status,stage_id,specialty_id,specialty_name,specialty_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at"
-      )
-      .eq("company_id", companyId)
-      .order("kanban_position", { ascending: true })
-      .order("created_at", { ascending: false }),
+    leadsQuery,
     supabase
       .from("users")
       .select("id, name, is_dentist")
@@ -244,7 +286,7 @@ export const getKanbanData = cache(async (companyId: string) => {
       string
     >,
   };
-});
+};
 
 export const getLeadSidebarData = cache(
   async (companyId: string, leadId: string) => {

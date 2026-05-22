@@ -1,12 +1,18 @@
 "use client";
 
 import { PIPELINE_STAGE_COLORS } from "@/lib/pipeline-stage-colors";
+import {
+  STAGE_CATEGORIES,
+  STAGE_CATEGORY_LABEL,
+  type StageCategory,
+} from "@/lib/types/database";
 
 export interface StageFormValues {
   name: string;
   color: string;
   is_won: boolean;
   is_lost: boolean;
+  category: StageCategory | null;
 }
 
 interface StageFormFieldsProps {
@@ -50,6 +56,9 @@ export function StageFormFields({
       is_won: !values.is_lost ? false : values.is_won,
     });
   }
+  function setCategory(category: StageCategory | null) {
+    onChange({ ...values, category });
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -87,6 +96,31 @@ export function StageFormFields({
             />
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-gray-600">
+          Categoria (mini-dash)
+        </label>
+        <select
+          value={values.category ?? ""}
+          onChange={(e) =>
+            setCategory((e.target.value || null) as StageCategory | null)
+          }
+          disabled={disabled}
+          className={`w-full rounded-lg border px-3 py-1.5 text-sm ${
+            values.category
+              ? "border-gray-300"
+              : "border-amber-300 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <option value="">Sem categoria (não conta na mini-dash)</option>
+          {STAGE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {STAGE_CATEGORY_LABEL[c]}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="flex items-center gap-4 text-xs">

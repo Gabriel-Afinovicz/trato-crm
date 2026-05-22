@@ -369,7 +369,9 @@ export function AgendaContent({
   }, [dateObj]);
 
   return (
-    <div className="min-h-screen">
+    // Antes `min-h-screen`; agora `min-h-full` para respeitar a área
+    // disponível abaixo da barra global do AppShell.
+    <div className="min-h-full">
       <header className="border-b border-gray-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 lg:px-8">
           <div>

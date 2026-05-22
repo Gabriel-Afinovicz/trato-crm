@@ -63,7 +63,8 @@ export function LoginForm({ domain }: LoginFormProps) {
         throw new Error(`Erro no login: ${signInError.message}`);
       }
 
-      router.push(`/${domain}/dashboard`);
+      // Tela inicial do CRM: a aba executiva "Analítico" do Dashboard.
+      router.push(`/${domain}/dashboard?tab=analitico`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");

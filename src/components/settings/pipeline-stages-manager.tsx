@@ -19,7 +19,12 @@ import { CSS } from "@dnd-kit/utilities";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { PIPELINE_STAGE_COLORS } from "@/lib/pipeline-stage-colors";
-import type { PipelineStage } from "@/lib/types/database";
+import {
+  STAGE_CATEGORIES,
+  STAGE_CATEGORY_LABEL,
+  type PipelineStage,
+  type StageCategory,
+} from "@/lib/types/database";
 
 const PRESET_COLORS = PIPELINE_STAGE_COLORS;
 
@@ -29,6 +34,7 @@ function StageRow({
   onToggleActive,
   onToggleWon,
   onToggleLost,
+  onChangeCategory,
   hasLeads,
   operatingId,
 }: {
@@ -37,6 +43,7 @@ function StageRow({
   onToggleActive: (stage: PipelineStage) => void;
   onToggleWon: (stage: PipelineStage) => void;
   onToggleLost: (stage: PipelineStage) => void;
+  onChangeCategory: (stage: PipelineStage, cat: StageCategory | null) => void;
   hasLeads: boolean;
   operatingId: string | null;
 }) {
@@ -96,6 +103,31 @@ function StageRow({
       </div>
       <div className="flex items-center gap-2 text-xs">
         <label className="inline-flex items-center gap-1 text-gray-600">
+          Categoria
+          <select
+            value={stage.category ?? ""}
+            onChange={(e) =>
+              onChangeCategory(
+                stage,
+                (e.target.value || null) as StageCategory | null
+              )
+            }
+            className={`rounded border px-1.5 py-1 text-xs ${
+              stage.category
+                ? "border-gray-300 text-gray-700"
+                : "border-amber-300 bg-amber-50 text-amber-800"
+            }`}
+            title="Define como o lead será contado na mini-dash do Kanban/Leads."
+          >
+            <option value="">Sem categoria</option>
+            {STAGE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {STAGE_CATEGORY_LABEL[c]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="inline-flex items-center gap-1 text-gray-600">
           <input
             type="checkbox"
             checked={stage.is_won}
@@ -148,6 +180,7 @@ export function PipelineStagesManager() {
 
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState<string>(PRESET_COLORS[0]);
+  const [newCategory, setNewCategory] = useState<StageCategory | "">("quente");
   const [saving, setSaving] = useState(false);
 
   const [editing, setEditing] = useState<PipelineStage | null>(null);
@@ -207,6 +240,7 @@ export function PipelineStagesManager() {
       name: newName.trim(),
       color: newColor,
       position: nextPosition,
+      category: newCategory || null,
     });
     if (insertError) {
       setError(`Erro ao criar: ${insertError.message}`);
@@ -215,8 +249,29 @@ export function PipelineStagesManager() {
     }
     setNewName("");
     setNewColor(PRESET_COLORS[0]);
+    setNewCategory("quente");
     setSaving(false);
     await fetchAll();
+  }
+
+  async function handleChangeCategory(
+    stage: PipelineStage,
+    category: StageCategory | null
+  ) {
+    setOperatingId(stage.id);
+    const supabase = createClient();
+    const { error: updateError } = await supabase
+      .from("pipeline_stages")
+      .update({ category })
+      .eq("id", stage.id);
+    setOperatingId(null);
+    if (updateError) {
+      setError(`Erro: ${updateError.message}`);
+      return;
+    }
+    setStages((prev) =>
+      prev.map((s) => (s.id === stage.id ? { ...s, category } : s))
+    );
   }
 
   async function handleUpdate() {
@@ -321,11 +376,42 @@ export function PipelineStagesManager() {
     );
   }
 
+  const stagesWithoutCategory = stages.filter((s) => !s.category && s.is_active);
+
   return (
     <div className="space-y-6">
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {stagesWithoutCategory.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <svg
+            className="mt-0.5 h-4 w-4 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+          <div>
+            <p className="font-medium">
+              {stagesWithoutCategory.length} etapa
+              {stagesWithoutCategory.length === 1 ? "" : "s"} sem categoria
+            </p>
+            <p className="mt-0.5 text-xs">
+              Leads em etapas sem categoria entram em &quot;sem categoria&quot; na
+              mini-dash do Kanban/Leads. Defina a categoria abaixo para que
+              eles apareçam nos KPIs corretos.
+            </p>
+          </div>
         </div>
       )}
 
@@ -356,6 +442,21 @@ export function PipelineStagesManager() {
               />
             ))}
           </div>
+          <select
+            value={newCategory}
+            onChange={(e) =>
+              setNewCategory(e.target.value as StageCategory | "")
+            }
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            title="Categoria usada na mini-dash do Kanban e tela Leads."
+          >
+            <option value="">Sem categoria</option>
+            {STAGE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {STAGE_CATEGORY_LABEL[c]}
+              </option>
+            ))}
+          </select>
           <button
             onClick={handleCreate}
             disabled={saving || !newName.trim()}
@@ -388,6 +489,7 @@ export function PipelineStagesManager() {
                   onToggleActive={handleToggleActive}
                   onToggleWon={handleToggleWon}
                   onToggleLost={handleToggleLost}
+                  onChangeCategory={handleChangeCategory}
                   hasLeads={(leadCountByStage[stage.id] ?? 0) > 0}
                   operatingId={operatingId}
                 />

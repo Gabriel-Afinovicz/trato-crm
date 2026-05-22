@@ -1,21 +1,75 @@
 // ── Analytics ─────────────────────────────────────────────────────────────────
 
-export interface DashboardAnalytics {
-  new_leads: number;
-  prev_new_leads: number;
-  appointments_count: number;
-  prev_appointments_count: number;
-  today_appointments: number;
-  confirmed_appointments: number;
-  no_shows: number;
-  prev_no_shows: number;
-  active_leads: number;
-  won_leads: number;
-  lost_in_period: number;
-  inactive_leads_30d: number;
-  leads_without_appointment: number;
-  confirmation_rate: number;
-  no_show_rate: number;
+// Categorias canônicas de pipeline. Cada `pipeline_stage` da clínica
+// aponta para uma destas — a mini-dash do Kanban/Leads agrupa por
+// categoria, garantindo que os KPIs façam sentido mesmo quando cada
+// clínica nomeia as etapas de forma diferente.
+export type StageCategory =
+  | "frio"
+  | "quente"
+  | "agendado"
+  | "compareceu"
+  | "orcamento"
+  | "fechado"
+  | "perdido";
+
+export const STAGE_CATEGORIES: StageCategory[] = [
+  "frio",
+  "quente",
+  "agendado",
+  "compareceu",
+  "orcamento",
+  "fechado",
+  "perdido",
+];
+
+export const STAGE_CATEGORY_LABEL: Record<StageCategory, string> = {
+  frio: "Frio",
+  quente: "Quente",
+  agendado: "Agendado",
+  compareceu: "Compareceu",
+  orcamento: "Orçamento",
+  fechado: "Fechado",
+  perdido: "Perdido",
+};
+
+// Cohort de leads criados no período agrupada pela categoria do stage
+// atual de cada lead. `sem_categoria` cobre stages criados antes da
+// migration ou pelo admin sem mapear categoria (banner em Configurações).
+export interface MinidashCohort {
+  total: number;
+  frio: number;
+  quente: number;
+  agendado: number;
+  compareceu: number;
+  orcamento: number;
+  fechado: number;
+  perdido: number;
+  sem_categoria: number;
+}
+
+// KPIs executivos da aba "Analítico" (mês operacional).
+// Fechamentos consideram leads cujo `converted_at` caiu no período, mesmo
+// quando o lead foi criado em meses anteriores (follow-up). O denominador
+// "% sobre etapa anterior" é eficiência operacional do mês, não pureza
+// de coorte — ver tooltip no painel.
+export interface AnaliticoKpis {
+  total_leads: number;
+  total_agendamentos: number;
+  total_comparecimentos: number;
+  total_fechamentos: number;
+  fechamentos_follow_up: number;
+  soma_fechamento: number;
+  soma_entrada: number;
+  ticket_medio: number;
+}
+
+// Metas analíticas por clínica. Persistidas em `companies.settings.analytics_goals`.
+// Quando ausentes, a aplicação assume o padrão 40/40/30 (ver getClinicGoals).
+export interface ClinicAnalyticsGoals {
+  appointment_pct: number;
+  attendance_pct: number;
+  closing_pct: number;
 }
 
 export interface StageFunnelRow {
@@ -103,6 +157,10 @@ export interface PipelineStage {
   is_lost: boolean;
   is_active: boolean;
   legacy_status: LeadStatus | null;
+  // Categoria canônica usada pela mini-dash. Pode ser null para stages
+  // criados antes da migration ou pelo admin que ainda não definiu — a
+  // UI em Configurações cobra o mapeamento.
+  category: StageCategory | null;
   created_at: string;
   updated_at: string;
 }
@@ -278,6 +336,13 @@ export interface Lead {
   notes: string | null;
   lost_reason: string | null;
   converted_at: string | null;
+  // Valores monetários do fechamento. Populados pela UI quando o lead
+  // efetivamente fecha. A RPC de KPIs usa essas colunas para calcular
+  // soma_fechamento, soma_entrada e ticket_medio (média só de
+  // closing_value não nulos para não enviesar para baixo quando o
+  // dentista esqueceu de preencher).
+  closing_value: number | null;
+  down_payment: number | null;
   kanban_position: number;
   photo_url: string | null;
   birthdate: string | null;
@@ -520,6 +585,7 @@ export interface LeadDetailed extends Lead {
   source_name: string | null;
   stage_name: string | null;
   stage_color: string | null;
+  stage_category: StageCategory | null;
   stage_position: number | null;
   stage_is_won: boolean | null;
   stage_is_lost: boolean | null;
@@ -553,21 +619,48 @@ export interface Database {
         Row: Lead;
         Insert: Omit<
           Lead,
-          "id" | "created_at" | "updated_at" | "status" | "specialty_id" | "kanban_position"
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "status"
+          | "specialty_id"
+          | "kanban_position"
+          | "closing_value"
+          | "down_payment"
         > &
-          Partial<Pick<Lead, "status" | "specialty_id" | "kanban_position">>;
+          Partial<
+            Pick<
+              Lead,
+              "status" | "specialty_id" | "kanban_position" | "closing_value" | "down_payment"
+            >
+          >;
         Update: Partial<Omit<Lead, "id" | "created_at" | "updated_at">>;
       };
       pipeline_stages: {
         Row: PipelineStage;
         Insert: Omit<
           PipelineStage,
-          "id" | "created_at" | "updated_at" | "is_active" | "is_won" | "is_lost" | "color" | "position"
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "is_active"
+          | "is_won"
+          | "is_lost"
+          | "color"
+          | "position"
+          | "category"
         > &
           Partial<
             Pick<
               PipelineStage,
-              "id" | "is_active" | "is_won" | "is_lost" | "color" | "position" | "legacy_status"
+              | "id"
+              | "is_active"
+              | "is_won"
+              | "is_lost"
+              | "color"
+              | "position"
+              | "legacy_status"
+              | "category"
             >
           >;
         Update: Partial<Omit<PipelineStage, "id" | "created_at" | "updated_at">>;
@@ -926,14 +1019,6 @@ export interface Database {
         Args: { p_domain: string; p_token: string; p_action: string };
         Returns: string;
       };
-      get_dashboard_analytics: {
-        Args: {
-          p_company_id: string;
-          p_start: string;
-          p_end: string;
-        };
-        Returns: DashboardAnalytics;
-      };
       get_stage_funnel: {
         Args: {
           p_company_id: string;
@@ -941,6 +1026,22 @@ export interface Database {
           p_end: string;
         };
         Returns: StageFunnelRow[];
+      };
+      get_analitico_kpis: {
+        Args: {
+          p_company_id: string;
+          p_start: string;
+          p_end: string;
+        };
+        Returns: AnaliticoKpis;
+      };
+      get_kanban_minidash: {
+        Args: {
+          p_company_id: string;
+          p_start: string;
+          p_end: string;
+        };
+        Returns: MinidashCohort;
       };
     };
     Enums: {

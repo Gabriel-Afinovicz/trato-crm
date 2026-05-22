@@ -22,6 +22,7 @@ const INITIAL_VALUES: StageFormValues = {
   color: PIPELINE_STAGE_COLORS[0],
   is_won: false,
   is_lost: false,
+  category: "quente",
 };
 
 /**
@@ -58,6 +59,7 @@ export function AddStageColumn({
         position: nextPosition,
         is_won: values.is_won,
         is_lost: values.is_lost,
+        category: values.category,
       })
       .select("*")
       .single();

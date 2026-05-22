@@ -9,9 +9,27 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { PipelineStage } from "@/lib/types/database";
+import {
+  STAGE_CATEGORY_LABEL,
+  type PipelineStage,
+  type StageCategory,
+} from "@/lib/types/database";
 import type { KanbanLead } from "@/lib/supabase/dashboard-data";
 import { KanbanCard } from "./kanban-card";
+
+/**
+ * Mesma paleta usada pela `LeadsMinidash` — manter pareado garante que
+ * o usuário associe instantaneamente a coluna ao card da mini-dash.
+ */
+const CATEGORY_PILL: Record<StageCategory, string> = {
+  frio: "bg-sky-100 text-sky-800",
+  quente: "bg-orange-100 text-orange-800",
+  agendado: "bg-blue-100 text-blue-800",
+  compareceu: "bg-violet-100 text-violet-800",
+  orcamento: "bg-amber-100 text-amber-800",
+  fechado: "bg-emerald-100 text-emerald-800",
+  perdido: "bg-rose-100 text-rose-800",
+};
 
 export function columnSortableId(stageId: string) {
   return `col:${stageId}`;
@@ -58,6 +76,9 @@ interface KanbanColumnProps {
   onOpenEdit?: (leadId: string) => void;
   /** Acionado pelo botão de "três pontinhos" no topo da coluna. */
   onEditStage?: (stage: PipelineStage) => void;
+  /** Lista de stages para o menu "Mover para…" no card. */
+  allStages?: PipelineStage[];
+  onMoveToStage?: (leadId: string, toStageId: string) => void;
 }
 
 function CellDroppable({
@@ -67,6 +88,8 @@ function CellDroppable({
   lastActivityByLead,
   empty,
   onOpenEdit,
+  allStages,
+  onMoveToStage,
 }: {
   id: string;
   leads: KanbanLead[];
@@ -74,6 +97,8 @@ function CellDroppable({
   lastActivityByLead: Record<string, string>;
   empty: boolean;
   onOpenEdit?: (leadId: string) => void;
+  allStages?: PipelineStage[];
+  onMoveToStage?: (leadId: string, toStageId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id, data: { type: "cell" } });
   const ids = leads.map((l) => l.id);
@@ -92,6 +117,8 @@ function CellDroppable({
             domain={domain}
             lastActivityAt={lastActivityByLead[lead.id] ?? null}
             onOpenEdit={onOpenEdit}
+            allStages={allStages}
+            onMoveToStage={onMoveToStage}
           />
         ))}
       </SortableContext>
@@ -113,6 +140,8 @@ export function KanbanColumn({
   showLaneLabel,
   onOpenEdit,
   onEditStage,
+  allStages,
+  onMoveToStage,
 }: KanbanColumnProps) {
   const [openLanes, setOpenLanes] = useState<Set<string>>(() => new Set());
 
@@ -146,29 +175,48 @@ export function KanbanColumn({
     <div
       ref={setNodeRef}
       style={{ ...style, borderTopColor: stage.color, borderTopWidth: 3 }}
-      className={`flex min-w-[280px] flex-1 flex-col rounded-xl border border-gray-200 bg-gray-50/50 ${
+      className={`flex min-w-[280px] max-w-[320px] shrink-0 flex-col rounded-xl border border-gray-200 bg-gray-50/50 h-full ${
         isDragging ? "opacity-60 ring-2 ring-blue-400/40" : ""
       }`}
     >
       <div
         {...attributes}
         {...listeners}
-        className="flex cursor-grab items-center justify-between border-b border-gray-200 bg-white/70 px-3 py-2 rounded-t-xl select-none active:cursor-grabbing"
+        className="flex cursor-grab items-start justify-between border-b border-gray-200 bg-white/70 px-3 py-2 rounded-t-xl select-none active:cursor-grabbing"
       >
-        <div className="flex items-center gap-2">
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ backgroundColor: stage.color }}
-          />
-          <h3 className="text-sm font-semibold text-gray-800">{stage.name}</h3>
-          {stage.is_won && (
-            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
-              ganho
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ backgroundColor: stage.color }}
+            />
+            <h3 className="truncate text-sm font-semibold text-gray-800">
+              {stage.name}
+            </h3>
+            {stage.is_won && (
+              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                ganho
+              </span>
+            )}
+            {stage.is_lost && (
+              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700">
+                perdido
+              </span>
+            )}
+          </div>
+          {stage.category ? (
+            <span
+              className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${CATEGORY_PILL[stage.category]}`}
+              title="Categoria correspondente na mini-dash acima"
+            >
+              {STAGE_CATEGORY_LABEL[stage.category]}
             </span>
-          )}
-          {stage.is_lost && (
-            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700">
-              perdido
+          ) : (
+            <span
+              className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800"
+              title="Sem categoria definida — leads desta etapa caem em 'sem categoria' na mini-dash."
+            >
+              Sem categoria
             </span>
           )}
         </div>
@@ -200,7 +248,10 @@ export function KanbanColumn({
         </div>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-2">
+      <div
+        data-kanban-column-body="true"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2"
+      >
         {totalCount === 0 && <NewLeadButton domain={domain} />}
         {cells.map((cell) => {
           const isDrawer = showLaneLabel && cell.laneLabel !== null;
@@ -248,6 +299,8 @@ export function KanbanColumn({
                   lastActivityByLead={lastActivityByLead}
                   empty={showLaneLabel}
                   onOpenEdit={onOpenEdit}
+                  allStages={allStages}
+                  onMoveToStage={onMoveToStage}
                 />
               )}
             </div>

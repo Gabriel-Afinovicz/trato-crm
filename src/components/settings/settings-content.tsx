@@ -77,6 +77,11 @@ const WhatsAppInstanceManager = dynamic(
     ),
   { loading: () => <TabSkeleton /> }
 );
+const AnalyticsGoalsManager = dynamic(
+  () =>
+    import("./analytics-goals-manager").then((m) => m.AnalyticsGoalsManager),
+  { loading: () => <TabSkeleton /> }
+);
 
 const TAB_GROUPS = [
   {
@@ -88,6 +93,7 @@ const TAB_GROUPS = [
       { id: "tags", label: "Tags" },
       { id: "sources", label: "Fontes" },
       { id: "custom-fields", label: "Campos personalizados" },
+      { id: "analytics-goals", label: "Metas analíticas" },
     ],
   },
   {
@@ -114,6 +120,7 @@ type TabId =
   | "tags"
   | "sources"
   | "custom-fields"
+  | "analytics-goals"
   | "rooms"
   | "procedures"
   | "hours"
@@ -130,6 +137,7 @@ const VALID_TABS: TabId[] = [
   "tags",
   "sources",
   "custom-fields",
+  "analytics-goals",
   "rooms",
   "procedures",
   "hours",
@@ -218,6 +226,7 @@ export function SettingsContent({
       {activeTab === "tags" && <TagsManager />}
       {activeTab === "sources" && <SourcesManager />}
       {activeTab === "custom-fields" && <CustomFieldsManager />}
+      {activeTab === "analytics-goals" && <AnalyticsGoalsManager />}
       {activeTab === "rooms" && <RoomsManager />}
       {activeTab === "procedures" && <ProcedureTypesManager />}
       {activeTab === "hours" && <ClinicHoursManager />}

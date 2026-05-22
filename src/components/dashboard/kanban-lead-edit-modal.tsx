@@ -261,6 +261,40 @@ export function KanbanLeadEditModal({
                 <InfoRow label="Observações clínicas" value={detailed.clinical_notes} />
               </div>
 
+              {/* Financeiro — só mostra quando há valores. Esses campos
+                   alimentam o Ticket Médio da aba Analítico. */}
+              {(detailed.closing_value != null || detailed.down_payment != null) && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+                  <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                    Financeiro
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <InfoRow
+                      label="Valor de fechamento"
+                      value={
+                        detailed.closing_value != null
+                          ? new Intl.NumberFormat("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            }).format(detailed.closing_value)
+                          : null
+                      }
+                    />
+                    <InfoRow
+                      label="Valor de entrada"
+                      value={
+                        detailed.down_payment != null
+                          ? new Intl.NumberFormat("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            }).format(detailed.down_payment)
+                          : null
+                      }
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Campos adicionais */}
               {customFields.length > 0 && (
                 <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">

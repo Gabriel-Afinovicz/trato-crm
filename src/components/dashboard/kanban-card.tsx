@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { KanbanLead } from "@/lib/supabase/dashboard-data";
+import type { PipelineStage } from "@/lib/types/database";
 
 interface KanbanCardProps {
   lead: KanbanLead;
@@ -11,6 +12,17 @@ interface KanbanCardProps {
   isOverlay?: boolean;
   lastActivityAt?: string | null;
   onOpenEdit?: (leadId: string) => void;
+  /**
+   * Lista de etapas para o menu "Mover para…". Quando ausente, o menu
+   * fica oculto (compat com o overlay e contextos onde o caller já
+   * provê o controle).
+   */
+  allStages?: PipelineStage[];
+  /**
+   * Disparado pelo menu. Devolve ao caller só o destino — quem
+   * orquestra DnD/persistência decide como aplicar.
+   */
+  onMoveToStage?: (leadId: string, toStageId: string) => void;
 }
 
 function formatRelative(iso: string) {
@@ -52,6 +64,8 @@ export function KanbanCard({
   isOverlay,
   lastActivityAt,
   onOpenEdit,
+  allStages,
+  onMoveToStage,
 }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({
@@ -66,6 +80,17 @@ export function KanbanCard({
 
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const movedBeyondThreshold = useRef(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handler(e: MouseEvent) {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     pointerStart.current = { x: e.clientX, y: e.clientY };
@@ -110,9 +135,75 @@ export function KanbanCard({
         <span className="flex-1 truncate text-sm font-medium text-gray-900">
           {lead.name}
         </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-gray-400">
-          {formatRelative(lead.updated_at ?? lead.created_at)}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400">
+            {formatRelative(lead.updated_at ?? lead.created_at)}
+          </span>
+          {!isOverlay && allStages && allStages.length > 0 && onMoveToStage && (
+            <div ref={menuRef} className="relative">
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                aria-label="Mais ações"
+                className="rounded p-0.5 text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100 focus:opacity-100"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm6 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm6 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z"
+                  />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 z-20 mt-1 w-48 origin-top-right rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    Mover para etapa
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {allStages.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        disabled={s.id === lead.stage_id}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpen(false);
+                          if (s.id !== lead.stage_id) {
+                            onMoveToStage(lead.id, s.id);
+                          }
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+                      >
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: s.color }}
+                        />
+                        <span className="truncate">{s.name}</span>
+                        {s.id === lead.stage_id && (
+                          <span className="ml-auto text-[10px] text-gray-400">
+                            atual
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">

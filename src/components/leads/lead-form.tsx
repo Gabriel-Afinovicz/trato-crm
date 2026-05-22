@@ -109,6 +109,16 @@ export function LeadForm({
   const [allergies, setAllergies] = useState(lead?.allergies || "");
   const [clinicalNotes, setClinicalNotes] = useState(lead?.clinical_notes || "");
 
+  // Valores monetários do fechamento (alimentam o Ticket Médio no
+  // painel Analítico). Mantemos como string para preservar campo vazio
+  // como "não informado" — convertemos para number só no submit.
+  const [closingValue, setClosingValue] = useState<string>(
+    lead?.closing_value != null ? String(lead.closing_value) : ""
+  );
+  const [downPayment, setDownPayment] = useState<string>(
+    lead?.down_payment != null ? String(lead.down_payment) : ""
+  );
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -269,6 +279,14 @@ export function LeadForm({
     setSaving(true);
     const supabase = createClient();
 
+    // Strings vazias viram null para o banco — `numeric(12,2)` aceita nulo.
+    const parseMoney = (v: string) => {
+      const trimmed = v.trim();
+      if (!trimmed) return null;
+      const n = Number(trimmed.replace(",", "."));
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+
     const payload = {
       name: name.trim(),
       phone: phone.trim() || null,
@@ -283,6 +301,8 @@ export function LeadForm({
       guardian_phone: guardianPhone.trim() || null,
       allergies: allergies.trim() || null,
       clinical_notes: clinicalNotes.trim() || null,
+      closing_value: parseMoney(closingValue),
+      down_payment: parseMoney(downPayment),
     };
 
     if (isEditing && lead) {
@@ -522,6 +542,34 @@ export function LeadForm({
             placeholder="(00) 00000-0000"
             value={guardianPhone}
             onChange={(e) => setGuardianPhone(e.target.value)}
+          />
+        </div>
+      </Section>
+
+      <Section
+        title="Financeiro"
+        description="Valores de fechamento e entrada — usados no Ticket Médio do painel Analítico"
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Valor de fechamento (R$)"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="0.01"
+            placeholder="0,00"
+            value={closingValue}
+            onChange={(e) => setClosingValue(e.target.value)}
+          />
+          <Input
+            label="Valor de entrada (R$)"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="0.01"
+            placeholder="0,00"
+            value={downPayment}
+            onChange={(e) => setDownPayment(e.target.value)}
           />
         </div>
       </Section>

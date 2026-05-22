@@ -1,6 +1,6 @@
 export default function AgendaLoading() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-full">
       <header className="border-b border-gray-200 bg-white">
         <div className="flex items-center justify-between px-6 py-4 lg:px-8">
           <div className="h-6 w-40 animate-pulse rounded bg-gray-200" />

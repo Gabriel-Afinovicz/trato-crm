@@ -1,28 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 interface SidebarProps {
   domain: string;
   showSettings: boolean;
 }
 
-interface NavItem {
+interface SubNavItem {
+  /** Valor passado em `?tab=` para a rota pai. */
+  tab: string;
   label: string;
-  href: string;
   icon: React.ReactNode;
 }
+
+interface NavItem {
+  label: string;
+  /** Rota base (sem `?tab=`); o `[domain]` é prepended em runtime. */
+  href: string;
+  icon: React.ReactNode;
+  /** Quando definido, o item vira um expansível com sub-rotas. */
+  children?: SubNavItem[];
+}
+
+const ICON_DASHBOARD = (
+  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
+  </svg>
+);
+
+const ICON_KANBAN = (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6a2.25 2.25 0 0 1 2.25-2.25h1.5A2.25 2.25 0 0 1 9.75 6v12a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18V6ZM14.25 6A2.25 2.25 0 0 1 16.5 3.75H18A2.25 2.25 0 0 1 20.25 6v6A2.25 2.25 0 0 1 18 14.25h-1.5A2.25 2.25 0 0 1 14.25 12V6Z" />
+  </svg>
+);
+const ICON_FUNIL = (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 5.25h16.5L14.25 12v6.75L9.75 21v-9L3.75 5.25Z" />
+  </svg>
+);
+const ICON_ANALITICO = (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+  </svg>
+);
 
 const baseNavItems: NavItem[] = [
   {
     label: "Dashboard",
     href: "/dashboard",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
-      </svg>
-    ),
+    icon: ICON_DASHBOARD,
+    // Ordem fixada: Analítico, Kanban, Funil (do mais executivo ao mais operacional).
+    children: [
+      { tab: "analitico", label: "Analítico", icon: ICON_ANALITICO },
+      { tab: "kanban", label: "Kanban", icon: ICON_KANBAN },
+      { tab: "funil", label: "Funil", icon: ICON_FUNIL },
+    ],
   },
   {
     label: "Leads",
@@ -64,47 +99,228 @@ const settingsNavItem: NavItem = {
   ),
 };
 
+const COLLAPSE_STORAGE_KEY = "crm.sidebar.collapsed";
+
 export function Sidebar({ domain, showSettings }: SidebarProps) {
   const pathname = usePathname();
-  const navItems = showSettings ? [...baseNavItems, settingsNavItem] : baseNavItems;
+  const searchParams = useSearchParams();
+  const navItems = showSettings
+    ? [...baseNavItems, settingsNavItem]
+    : baseNavItems;
+
+  // O Dashboard troca de aba via `history.replaceState` (sem fetch RSC)
+  // para evitar piscadas. Como `useSearchParams` só reage a navegações
+  // do router, a sidebar precisa escutar um evento custom para refletir
+  // o sub-item ativo. Sincroniza com o `?tab=` da URL como ponto inicial.
+  const [currentTab, setCurrentTab] = useState<string | null>(
+    searchParams.get("tab")
+  );
+  useEffect(() => {
+    setCurrentTab(searchParams.get("tab"));
+  }, [searchParams]);
+  useEffect(() => {
+    function onTabChange(e: Event) {
+      const ce = e as CustomEvent<string>;
+      if (typeof ce.detail === "string") setCurrentTab(ce.detail);
+    }
+    window.addEventListener("crm:dashboard-tab", onTabChange);
+    return () => window.removeEventListener("crm:dashboard-tab", onTabChange);
+  }, []);
+
+  // Estado de colapso persistido em localStorage para sobreviver a
+  // recargas. Iniciamos com `false` no SSR e ajustamos no efeito para
+  // evitar mismatch de hidratação.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(COLLAPSE_STORAGE_KEY);
+      if (stored === "1") setCollapsed(true);
+    } catch {
+      /* ignora */
+    }
+  }, []);
+  const setCollapsedPersisted = (value: boolean) => {
+    setCollapsed(value);
+    try {
+      window.localStorage.setItem(COLLAPSE_STORAGE_KEY, value ? "1" : "0");
+    } catch {
+      /* ignora */
+    }
+  };
+
+  // Estado de expansão do Dashboard. Expandido por padrão quando o
+  // usuário está em alguma rota de dashboard; senão, fechado.
+  const dashboardHref = `/${domain}/dashboard`;
+  const isOnDashboard = pathname?.startsWith(dashboardHref);
+  const [dashOpen, setDashOpen] = useState<boolean>(!!isOnDashboard);
+  useEffect(() => {
+    if (isOnDashboard) setDashOpen(true);
+  }, [isOnDashboard]);
 
   return (
-    <aside className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
-      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
+    <aside
+      className={`relative flex h-full flex-col border-r border-gray-200 bg-white transition-[width] duration-200 ${
+        collapsed ? "w-14" : "w-60"
+      }`}
+    >
+      {/* Botão de minimizar/expandir — flutua na borda direita, na
+          altura do header. Aparece sempre, com a seta apontando para
+          o lado oposto ao estado atual. */}
+      <button
+        type="button"
+        onClick={() => setCollapsedPersisted(!collapsed)}
+        aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
+        title={collapsed ? "Expandir menu" : "Recolher menu"}
+        className="absolute -right-3 top-4 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700"
+      >
+        <svg
+          className={`h-3.5 w-3.5 transition-transform ${collapsed ? "rotate-180" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+        </svg>
+      </button>
+
+      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
           O
         </div>
-        <span className="text-sm font-semibold text-gray-900">CRM Odonto</span>
+        {!collapsed && (
+          <span className="truncate text-sm font-semibold text-gray-900">
+            CRM Odonto
+          </span>
+        )}
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {navItems.map((item) => {
           const fullHref = `/${domain}${item.href}`;
-          const isActive =
+          const isItemActive =
             pathname === fullHref ||
             (item.href !== "/dashboard" && pathname.startsWith(fullHref));
+          const isDashboard = item.href === "/dashboard";
+          const isActiveOnDashboard = !!isDashboard && !!isOnDashboard;
 
+          // Item com sub-rotas (Dashboard). Em modo colapsado, mostra
+          // só o ícone — clicar leva para a aba padrão.
+          if (item.children && !collapsed) {
+            return (
+              <div key={item.href} className="space-y-1">
+                <div
+                  className={`flex items-center gap-1 rounded-lg ${
+                    isActiveOnDashboard
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-gray-600"
+                  }`}
+                >
+                  <Link
+                    href={`${fullHref}?tab=${item.children[0].tab}`}
+                    className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      isActiveOnDashboard
+                        ? ""
+                        : "hover:bg-gray-50 hover:text-gray-900"
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setDashOpen((v) => !v)}
+                    aria-label={
+                      dashOpen
+                        ? `Recolher submenu ${item.label}`
+                        : `Expandir submenu ${item.label}`
+                    }
+                    className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  >
+                    <svg
+                      className={`h-3.5 w-3.5 transition-transform ${
+                        dashOpen ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2.5}
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                </div>
+                {dashOpen && (
+                  <div className="ml-3 space-y-0.5 border-l border-gray-100 pl-2">
+                    {item.children.map((sub) => {
+                      const isSubActive =
+                        isOnDashboard && currentTab === sub.tab;
+                      return (
+                        <Link
+                          key={sub.tab}
+                          href={`${fullHref}?tab=${sub.tab}`}
+                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                            isSubActive
+                              ? "bg-blue-50 text-blue-700"
+                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                          }`}
+                        >
+                          {sub.icon}
+                          {sub.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Item com sub-rotas, em modo colapsado: só ícone, vai pra
+          // primeira aba ao clicar.
+          if (item.children && collapsed) {
+            return (
+              <Link
+                key={item.href}
+                href={`${fullHref}?tab=${item.children[0].tab}`}
+                title={item.label}
+                className={`flex items-center justify-center rounded-lg p-2 transition-colors ${
+                  isActiveOnDashboard
+                    ? "bg-blue-50 text-blue-700"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                }`}
+              >
+                {item.icon}
+              </Link>
+            );
+          }
+
+          // Item simples.
           return (
             <Link
               key={item.href}
               href={fullHref}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors
-                ${
-                  isActive
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                }`}
+              title={collapsed ? item.label : undefined}
+              className={`flex items-center gap-3 rounded-lg ${
+                collapsed ? "justify-center p-2" : "px-3 py-2"
+              } text-sm font-medium transition-colors ${
+                isItemActive
+                  ? "bg-blue-50 text-blue-700"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              }`}
             >
               {item.icon}
-              {item.label}
+              {!collapsed && item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-gray-200 px-5 py-3">
-        <p className="text-xs text-gray-400">{domain}</p>
-      </div>
+      {!collapsed && (
+        <div className="border-t border-gray-200 px-5 py-3">
+          <p className="truncate text-xs text-gray-400">{domain}</p>
+        </div>
+      )}
     </aside>
   );
 }

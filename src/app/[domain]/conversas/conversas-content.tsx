@@ -1907,7 +1907,10 @@ export function ConversasContent({
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    // `h-full` casa com a área interna do AppShell (que já tem a barra
+    // global do usuário acima). Antes era `h-screen`, mas isso somava à
+    // altura do header global e criava scroll desnecessário.
+    <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Conversas</h1>

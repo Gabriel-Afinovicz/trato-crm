@@ -36,6 +36,7 @@ export function EditStageModal({
     color: stage.color,
     is_won: stage.is_won,
     is_lost: stage.is_lost,
+    category: stage.category,
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -55,6 +56,7 @@ export function EditStageModal({
         color: values.color,
         is_won: values.is_won,
         is_lost: values.is_lost,
+        category: values.category,
       })
       .eq("id", stage.id)
       .select("*")
