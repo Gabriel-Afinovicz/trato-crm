@@ -8,19 +8,24 @@ import type { MessageTemplate, MessageTemplateKind } from "@/lib/types/database"
 const KIND_LABEL: Record<MessageTemplateKind, string> = {
   confirmation: "Confirmação",
   reminder: "Lembrete",
-  post_visit: "Pós-consulta",
+  post_visit: "Pós-atendimento",
   birthday: "Aniversário",
   custom: "Outro",
+  snippet: "Resposta rápida (Conversas)",
 };
 
+// Placeholders genericos (lead/profissional/organizacao). Os antigos
+// (paciente/dentista/clinica) continuam aceitos no momento da substituicao
+// — ver `applyTemplate` em appointment-actions.tsx — para nao quebrar
+// templates ja salvos no banco antes desta versao.
 const PLACEHOLDERS = [
-  "{{paciente}}",
-  "{{dentista}}",
+  "{{lead}}",
+  "{{profissional}}",
   "{{data}}",
   "{{hora}}",
   "{{dia_semana}}",
   "{{data_calendario}}",
-  "{{clinica}}",
+  "{{organizacao}}",
   "{{link}}",
 ];
 
@@ -174,7 +179,7 @@ export function MessageTemplatesManager() {
         </div>
         <textarea
           rows={4}
-          placeholder="Olá {{paciente}}, podemos confirmar sua consulta em {{data}} com {{dentista}}? Confirme em: {{link}}"
+          placeholder="Olá {{lead}}, podemos confirmar seu atendimento em {{data}} com {{profissional}}? Confirme em: {{link}}"
           value={draft.body}
           onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
           className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"

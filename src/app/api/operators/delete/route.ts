@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   if (targetRecord.company_id !== ctx.companyId) {
     return NextResponse.json(
-      { error: "Usuário não pertence a esta clínica." },
+      { error: "Usuário não pertence a esta organização." },
       { status: 403 }
     );
   }

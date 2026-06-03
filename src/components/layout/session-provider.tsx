@@ -8,6 +8,13 @@ export interface SessionContextValue {
   profile: AppUser | null;
   companyId: string | null;
   companyName: string | null;
+  /**
+   * Fuso horario configurado para a organizacao (ex: "America/Sao_Paulo").
+   * Toda formatacao de data/hora visivel para o operador deve passar por
+   * aqui para refletir o calendario do escritorio — nao do navegador.
+   * Default `"America/Sao_Paulo"` quando o provider nao informa.
+   */
+  companyTimezone: string;
   domain: string | null;
 }
 
@@ -16,6 +23,7 @@ const SessionContext = createContext<SessionContextValue>({
   profile: null,
   companyId: null,
   companyName: null,
+  companyTimezone: "America/Sao_Paulo",
   domain: null,
 });
 

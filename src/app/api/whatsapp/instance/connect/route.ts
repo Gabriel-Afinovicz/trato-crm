@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminForDomain } from "@/lib/supabase/require-admin-for-domain";
-import { evolution, EvolutionConfigError } from "@/lib/evolution/client";
+import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 
 interface ConnectPayload {
   domain?: string;
@@ -16,10 +17,8 @@ interface InstanceRow {
 
 export async function POST(req: NextRequest) {
   if (!evolution.isConfigured()) {
-    return NextResponse.json(
-      { error: "Evolution API nao configurada no servidor." },
-      { status: 503 }
-    );
+    const f = friendlyEvolutionError({ name: "EvolutionConfigError" }, "connect");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   let body: ConnectPayload;
@@ -60,8 +59,26 @@ export async function POST(req: NextRequest) {
   let instanceId = existingRow?.id ?? null;
   let evolutionToken = existingRow?.evolution_token ?? null;
 
+  // "Fresh connect" quando:
+  //  - nao existe row no banco (primeira vez), OU
+  //  - existe row mas `evolution_token` esta NULL — sinal de que o
+  //    /disconnect anterior apagou a instancia na Evolution e
+  //    precisamos recriar do zero (caso contrario a Evolution reabriria
+  //    a sessao do cache Baileys SEM gerar QR).
+  const needsFreshInstance = !existingRow || !evolutionToken;
+
   try {
-    if (!existingRow) {
+    if (needsFreshInstance) {
+      // Best-effort: garante que nao sobrou nenhuma instancia velha na
+      // Evolution com esse mesmo nome. `resetInstance` cobre o caso em
+      // que a instancia ainda existe la (orfa de um disconnect anterior
+      // que nao completou) e precisaria de logout->wait->delete antes
+      // do create — caso contrario `create` retorna 403 Forbidden por
+      // nome duplicado.
+      if (existingRow) {
+        await evolution.resetInstance(instanceName);
+      }
+
       const created = await evolution.createInstance(instanceName);
       const hashApiKey =
         typeof created.hash === "string"
@@ -69,23 +86,43 @@ export async function POST(req: NextRequest) {
           : created.hash?.apikey ?? null;
       evolutionToken = hashApiKey;
 
-      const { data: inserted, error: insertErr } = await supabaseAdmin
-        .from("whatsapp_instances")
-        .insert({
-          company_id: ctx.companyId,
-          instance_name: instanceName,
-          status: "connecting",
-          evolution_token: evolutionToken,
-        })
-        .select("id")
-        .single();
-      if (insertErr || !inserted) {
-        return NextResponse.json(
-          { error: `Erro ao registrar instance: ${insertErr?.message}` },
-          { status: 500 }
-        );
+      if (existingRow) {
+        // Mantem a row (constraint 1:1 por company_id), so atualiza.
+        const { error: updateErr } = await supabaseAdmin
+          .from("whatsapp_instances")
+          .update({
+            status: "connecting",
+            evolution_token: evolutionToken,
+            phone_number: null,
+            connected_at: null,
+          })
+          .eq("id", existingRow.id);
+        if (updateErr) {
+          return NextResponse.json(
+            { error: `Erro ao atualizar instance: ${updateErr.message}` },
+            { status: 500 }
+          );
+        }
+        instanceId = existingRow.id;
+      } else {
+        const { data: inserted, error: insertErr } = await supabaseAdmin
+          .from("whatsapp_instances")
+          .insert({
+            company_id: ctx.companyId,
+            instance_name: instanceName,
+            status: "connecting",
+            evolution_token: evolutionToken,
+          })
+          .select("id")
+          .single();
+        if (insertErr || !inserted) {
+          return NextResponse.json(
+            { error: `Erro ao registrar instance: ${insertErr?.message}` },
+            { status: 500 }
+          );
+        }
+        instanceId = (inserted as { id: string }).id;
       }
-      instanceId = (inserted as { id: string }).id;
 
       const initialQr = created.qrcode?.base64 ?? null;
       if (initialQr) {
@@ -119,13 +156,8 @@ export async function POST(req: NextRequest) {
       pairingCode: connectRes.pairingCode ?? connectRes.code ?? null,
     });
   } catch (err) {
-    if (err instanceof EvolutionConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
-    }
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    return NextResponse.json(
-      { error: `Falha ao conectar Evolution: ${message}` },
-      { status: 502 }
-    );
+    console.error("[whatsapp/connect] upstream error", err);
+    const f = friendlyEvolutionError(err, "connect");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useEscapeKey } from "@/hooks/use-escape-key";
 import type { PipelineStage } from "@/lib/types/database";
 import {
   StageFormFields,
@@ -42,6 +43,10 @@ export function EditStageModal({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Esc fecha — exceto durante save/delete (evita interromper operacao
+  // destrutiva no servidor que pode acabar parcialmente aplicada).
+  useEscapeKey(!saving && !deleting, onClose);
 
   async function handleSave() {
     const trimmed = values.name.trim();

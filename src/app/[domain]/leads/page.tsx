@@ -21,7 +21,7 @@ export default async function LeadsPage({ params }: LeadsPageProps) {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Gerencie todos os leads da sua clínica
+            Gerencie todos os leads da sua organização
           </p>
         </div>
         <Link

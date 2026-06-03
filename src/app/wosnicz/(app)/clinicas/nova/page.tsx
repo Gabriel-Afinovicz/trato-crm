@@ -24,9 +24,9 @@ export default function NovaClinicaPage() {
           </svg>
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nova Clínica</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Nova Organização</h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            Cadastre uma nova clínica na plataforma
+            Cadastre uma nova organização na plataforma
           </p>
         </div>
       </div>

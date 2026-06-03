@@ -130,6 +130,11 @@ export interface Company {
   settings: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  // IANA timezone string (ex: "America/Sao_Paulo"). Toda interpretacao
+  // de data deve usar este TZ — relatorios, calendarios e badges de
+  // "hoje" devem refletir o calendario do escritorio da clinica, nao
+  // do navegador do operador (que pode estar viajando).
+  timezone: string;
 }
 
 export interface User {
@@ -137,7 +142,19 @@ export interface User {
   company_id: string;
   auth_id: string | null;
   name: string;
+  /**
+   * Email "fake" usado pelo Supabase Auth — gerado como
+   * `extension@domain.crm` para permitir login por ramal. Nao mostre
+   * isso ao usuario; para correspondencia (convites, reset etc) use
+   * `invite_email`.
+   */
   email: string;
+  /**
+   * Email real do membro (cadastrado pelo admin no convite). Opcional —
+   * membros antigos podem estar sem. Usado para enviar convites e
+   * recuperar senha por email.
+   */
+  invite_email: string | null;
   phone: string | null;
   extension_number: string;
   role: UserRole;
@@ -165,15 +182,6 @@ export interface PipelineStage {
   updated_at: string;
 }
 
-export interface Specialty {
-  id: string;
-  company_id: string;
-  name: string;
-  color: string;
-  is_active: boolean;
-  created_at: string;
-}
-
 export type AppointmentStatus =
   | "scheduled"
   | "confirmed"
@@ -196,7 +204,6 @@ export interface ProcedureType {
   name: string;
   default_duration_minutes: number;
   default_value: number | null;
-  specialty_id: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -292,7 +299,11 @@ export type MessageTemplateKind =
   | "reminder"
   | "post_visit"
   | "birthday"
-  | "custom";
+  | "custom"
+  // Snippets sao "mensagens rapidas" usadas no chat de Conversas via
+  // popover `/`. Mesma tabela das demais templates, kind dedicada para
+  // poder filtrar facilmente no picker do chat.
+  | "snippet";
 
 export interface MessageTemplate {
   id: string;
@@ -326,13 +337,17 @@ export interface Lead {
   company_id: string;
   assigned_to: string | null;
   source_id: string | null;
+  // Vinculo do lead a um Setor da clinica (CRC Leads, Follow-up, etc).
+  // Opcional para multinicho: contas sem setores cadastrados podem criar
+  // leads normalmente. Substitui na UI o antigo "Responsavel" (pessoa);
+  // o campo `assigned_to` (pessoa) permanece no banco como dado legado.
+  sector_id: string | null;
   name: string;
   identifier: string | null;
   email: string | null;
   phone: string | null;
   status: LeadStatus;
   stage_id: string;
-  specialty_id: string | null;
   notes: string | null;
   lost_reason: string | null;
   converted_at: string | null;
@@ -360,6 +375,51 @@ export interface LeadSource {
   company_id: string;
   name: string;
   is_active: boolean;
+  created_at: string;
+  /**
+   * Nome da campanha (BoardName) da Clinicorp para a qual leads desta fonte
+   * sao enviados. Null = fonte sem campanha mapeada (lead nao e enviado).
+   */
+  clinicorp_board_name: string | null;
+}
+
+/**
+ * Integracao de terceiros configurada por empresa. Generica para suportar
+ * varios conectores (clinicorp, rd_station, etc.) sob o mesmo modelo.
+ */
+export type IntegrationProvider = "clinicorp";
+
+export type IntegrationStatus = "active" | "disabled" | "error";
+
+export interface CompanyIntegration {
+  id: string;
+  company_id: string;
+  provider: IntegrationProvider;
+  /** Segredos do provedor (ex.: { api_key, subscriber_id }). */
+  credentials: Record<string, unknown>;
+  /** Preferencias nao-secretas (ex.: defaults, flags). */
+  config: Record<string, unknown>;
+  status: IntegrationStatus;
+  last_check_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type IntegrationLogStatus = "success" | "error";
+
+export interface IntegrationLog {
+  id: string;
+  company_id: string;
+  provider: string;
+  lead_id: string | null;
+  action: string;
+  request: Record<string, unknown> | null;
+  response: Record<string, unknown> | null;
+  status: IntegrationLogStatus;
+  http_status: number | null;
+  error_message: string | null;
+  duration_ms: number | null;
   created_at: string;
 }
 
@@ -426,6 +486,26 @@ export interface UserRoleTagAssignment {
   tag_id: string;
 }
 
+// "Setor" e a unidade operacional usada para distribuir leads dentro da
+// clinica (ex.: "CRC Leads", "CRC Follow-up"). Multinicho: qualquer
+// nomenclatura serve, seed inicial vazio. Substitui na UI do form o
+// antigo Responsavel (pessoa) sem apagar `users` nem `assigned_to`.
+export interface Sector {
+  id: string;
+  company_id: string;
+  name: string;
+  color: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserSectorAssignment {
+  user_id: string;
+  sector_id: string;
+  created_at: string;
+}
+
 export type WhatsAppInstanceStatus =
   | "disconnected"
   | "connecting"
@@ -447,6 +527,10 @@ export interface WhatsAppInstance {
   // Cooldown server-side de 60s sobrevive a F5/sessao nova/multi-aba e
   // protege as chamadas mais sensiveis (whatsappNumbers em batches).
   last_manual_sync_at: string | null;
+  // Timestamp do termino do ultimo sync manual. Quando NULL e
+  // last_manual_sync_at e recente, indica que ha sync em andamento. O
+  // banner "Sincronizando..." na aba Conversas usa isso.
+  sync_finished_at: string | null;
   // Heartbeat do webhook da Evolution. Atualizado pelo proprio handler do
   // webhook com throttle server-side de 15s (condicional no WHERE da query).
   // O cliente (`useWhatsAppHealth`) usa para detectar que o webhook esta
@@ -589,8 +673,10 @@ export interface LeadDetailed extends Lead {
   stage_position: number | null;
   stage_is_won: boolean | null;
   stage_is_lost: boolean | null;
-  specialty_name: string | null;
-  specialty_color: string | null;
+  // Setor (nome/cor resolvidos pela view). Null quando o lead esta sem
+  // setor (legado ou conta sem setores cadastrados).
+  sector_name: string | null;
+  sector_color: string | null;
 }
 
 export interface ActivityDetailed extends Activity {
@@ -623,15 +709,19 @@ export interface Database {
           | "created_at"
           | "updated_at"
           | "status"
-          | "specialty_id"
           | "kanban_position"
           | "closing_value"
           | "down_payment"
+          | "sector_id"
         > &
           Partial<
             Pick<
               Lead,
-              "status" | "specialty_id" | "kanban_position" | "closing_value" | "down_payment"
+              | "status"
+              | "kanban_position"
+              | "closing_value"
+              | "down_payment"
+              | "sector_id"
             >
           >;
         Update: Partial<Omit<Lead, "id" | "created_at" | "updated_at">>;
@@ -665,12 +755,6 @@ export interface Database {
           >;
         Update: Partial<Omit<PipelineStage, "id" | "created_at" | "updated_at">>;
       };
-      specialties: {
-        Row: Specialty;
-        Insert: Omit<Specialty, "id" | "created_at" | "is_active" | "color"> &
-          Partial<Pick<Specialty, "is_active" | "color">>;
-        Update: Partial<Omit<Specialty, "id" | "created_at">>;
-      };
       rooms: {
         Row: Room;
         Insert: Omit<Room, "id" | "created_at" | "is_active" | "color"> &
@@ -681,12 +765,12 @@ export interface Database {
         Row: ProcedureType;
         Insert: Omit<
           ProcedureType,
-          "id" | "created_at" | "is_active" | "default_duration_minutes" | "default_value" | "specialty_id"
+          "id" | "created_at" | "is_active" | "default_duration_minutes" | "default_value"
         > &
           Partial<
             Pick<
               ProcedureType,
-              "is_active" | "default_duration_minutes" | "default_value" | "specialty_id"
+              "is_active" | "default_duration_minutes" | "default_value"
             >
           >;
         Update: Partial<Omit<ProcedureType, "id" | "created_at">>;
@@ -772,6 +856,18 @@ export interface Database {
         Row: UserRoleTagAssignment;
         Insert: UserRoleTagAssignment;
         Update: Partial<UserRoleTagAssignment>;
+      };
+      sectors: {
+        Row: Sector;
+        Insert: Omit<Sector, "id" | "created_at" | "updated_at" | "is_active" | "color"> &
+          Partial<Pick<Sector, "is_active" | "color">>;
+        Update: Partial<Omit<Sector, "id" | "created_at" | "updated_at">>;
+      };
+      user_sector_assignments: {
+        Row: UserSectorAssignment;
+        Insert: Omit<UserSectorAssignment, "created_at"> &
+          Partial<Pick<UserSectorAssignment, "created_at">>;
+        Update: Partial<UserSectorAssignment>;
       };
       whatsapp_instances: {
         Row: WhatsAppInstance;
@@ -992,7 +1088,6 @@ export interface Database {
           p_to_stage_id: string;
           p_dest_ordered_ids: string[];
           p_source_ordered_ids: string[];
-          p_specialty_id?: string | null;
           p_lost_reason?: string | null;
         };
         Returns: void;
@@ -1032,6 +1127,7 @@ export interface Database {
           p_company_id: string;
           p_start: string;
           p_end: string;
+          p_sector_id?: string | null;
         };
         Returns: AnaliticoKpis;
       };
@@ -1040,8 +1136,17 @@ export interface Database {
           p_company_id: string;
           p_start: string;
           p_end: string;
+          p_sector_id?: string | null;
         };
         Returns: MinidashCohort;
+      };
+      create_lead_with_appointment: {
+        Args: { p_payload: Record<string, unknown> };
+        Returns: {
+          lead_id: string;
+          appointment_id: string | null;
+          stage_id: string | null;
+        };
       };
     };
     Enums: {

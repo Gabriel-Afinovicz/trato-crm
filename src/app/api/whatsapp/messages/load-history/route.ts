@@ -3,9 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   evolution,
-  EvolutionConfigError,
   type EvolutionMessageRecord,
 } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import type {
   WhatsAppMessage,
   WhatsAppMessageMediaType,
@@ -283,10 +283,11 @@ export async function POST(req: NextRequest) {
 
 async function handlePost(req: NextRequest) {
   if (!evolution.isConfigured()) {
-    return NextResponse.json(
-      { error: "Evolution API nao configurada no servidor." },
-      { status: 503 }
+    const f = friendlyEvolutionError(
+      { name: "EvolutionConfigError" },
+      "load_history"
     );
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   let body: LoadHistoryPayload;
@@ -374,26 +375,13 @@ async function handlePost(req: NextRequest) {
       requested
     );
   } catch (err) {
-    if (err instanceof EvolutionConfigError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
-    }
-    console.error("[load-history] evolution.findMessages failed:", {
+    console.error("[whatsapp/load-history] upstream error", {
       instance: instanceRow.instance_name,
       remoteJid: chatRow.remote_jid,
-      error: err,
+      err,
     });
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    const payload =
-      err && typeof err === "object" && "payload" in err
-        ? (err as { payload?: unknown }).payload
-        : undefined;
-    return NextResponse.json(
-      {
-        error: `Falha ao buscar historico: ${message}`,
-        evolutionPayload: payload ?? null,
-      },
-      { status: 502 }
-    );
+    const f = friendlyEvolutionError(err, "load_history");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   // === Fallback @lid ===

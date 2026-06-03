@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import { phoneToJid, jidToPhone, onlyDigits } from "@/lib/evolution/phone";
 
 interface SendPayload {
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
   if (!instanceRow) {
     return NextResponse.json(
       {
-        error: "WhatsApp ainda nao conectado para esta clinica.",
+        error: "WhatsApp ainda nao conectado para esta organizacao.",
         code: "NOT_CONNECTED",
       },
       { status: 409 }
@@ -190,8 +191,9 @@ export async function POST(req: NextRequest) {
         .select("id, company_id, instance_id, remote_jid, lead_id")
         .single();
       if (chatErr || !created) {
+        console.error("[whatsapp/send] failed to create chat", chatErr);
         return NextResponse.json(
-          { error: `Erro ao criar chat: ${chatErr?.message}` },
+          { error: "Nao foi possivel iniciar a conversa. Tente novamente em alguns instantes." },
           { status: 500 }
         );
       }
@@ -202,7 +204,7 @@ export async function POST(req: NextRequest) {
 
   if (!chatRow || !targetJid) {
     return NextResponse.json(
-      { error: "Falha ao resolver destino." },
+      { error: "Nao foi possivel identificar o destinatario da mensagem." },
       { status: 500 }
     );
   }
@@ -280,11 +282,9 @@ export async function POST(req: NextRequest) {
     );
     evoMessageId = sendRes.key?.id ?? null;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    return NextResponse.json(
-      { error: `Falha ao enviar via Evolution: ${message}` },
-      { status: 502 }
-    );
+    console.error("[whatsapp/send] upstream error", err);
+    const f = friendlyEvolutionError(err, "send");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   const sentAt = new Date().toISOString();
@@ -332,8 +332,9 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
     if (insertErr || !inserted) {
+      console.error("[whatsapp/send] failed to persist message", insertErr);
       return NextResponse.json(
-        { error: `Erro ao registrar mensagem: ${insertErr?.message}` },
+        { error: "Mensagem enviada, mas houve um problema ao registra-la. Recarregue a conversa." },
         { status: 500 }
       );
     }

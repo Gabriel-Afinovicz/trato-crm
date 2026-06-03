@@ -51,7 +51,10 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   }
 
   const companyName = company?.name ?? domain;
-  const monthRange = defaultMonthRange();
+  // Usa o fuso da organizacao para nao "virar de mes" no UTC antes de
+  // meia-noite local. Sem company (super_admin acessando dominio
+  // desconhecido) cai no fuso default do helper.
+  const monthRange = defaultMonthRange(new Date(), company?.timezone ?? null);
 
   const [{ recentLeads }, kanban, analiticoKpis, goalsResult, minidash] =
     company
@@ -68,7 +71,6 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
             leads: [],
             operators: [],
             stages: [],
-            specialties: [],
             lastActivityByLead: {},
           },
           EMPTY_KPIS,
@@ -84,7 +86,6 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
       initialKanbanLeads={kanban.leads}
       initialOperators={kanban.operators}
       initialStages={kanban.stages}
-      initialSpecialties={kanban.specialties}
       initialLastActivity={kanban.lastActivityByLead}
       initialKanbanMinidash={minidash}
       initialKanbanRange={{

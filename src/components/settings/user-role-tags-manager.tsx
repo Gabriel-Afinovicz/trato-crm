@@ -156,7 +156,7 @@ export function UserRoleTagsManager() {
         <div className="grid gap-3 sm:grid-cols-2">
           <input
             type="text"
-            placeholder="Ex: Dentista, Secretário(a), Auxiliar..."
+            placeholder="Ex: Profissional, Secretário(a), Auxiliar..."
             value={draft.name}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
@@ -189,7 +189,7 @@ export function UserRoleTagsManager() {
                   }))
                 }
               />
-              Marca como dentista
+              Marca como profissional
             </label>
           </div>
         </div>
@@ -204,8 +204,8 @@ export function UserRoleTagsManager() {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-gray-500">
-          Quando uma função tem &quot;marca como dentista&quot;, qualquer
-          usuário com essa tag passa a aparecer no select de dentista da agenda.
+          Quando uma função tem &quot;marca como profissional&quot;, qualquer
+          usuário com essa tag passa a aparecer no select de profissional da agenda.
         </p>
       </div>
 
@@ -261,7 +261,7 @@ export function UserRoleTagsManager() {
                           }))
                         }
                       />
-                      Dentista
+                      Profissional
                     </label>
                     <div className="flex gap-2">
                       <button
@@ -284,7 +284,7 @@ export function UserRoleTagsManager() {
                       <Badge color={item.color}>{item.name}</Badge>
                       {item.marks_as_dentist && (
                         <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                          Dentista
+                          Profissional
                         </span>
                       )}
                       {!item.is_active && (

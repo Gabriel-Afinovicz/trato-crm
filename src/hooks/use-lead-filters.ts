@@ -18,7 +18,6 @@ import {
  * - `start`/`end` : ISO 8601, intervalo `[start, end)`.
  * - `q`           : busca por nome/telefone/email.
  * - `assignee`    : id do responsável OU "unassigned".
- * - `specialty`   : id da especialidade OU "none".
  * - `source`      : id da origem.
  * - `tags`        : csv de tag_ids.
  * - `page`        : número de página (1-indexed). Reset automático quando
@@ -38,7 +37,8 @@ export interface LeadFiltersState {
   end: string | null;
   q: string;
   assignee: string | null;
-  specialty: string | null;
+  /** "<uuid>" filtra por setor; "none" = leads sem setor; null = todos. */
+  sector: string | null;
   source: string | null;
   tags: string[];
   page: number;
@@ -50,7 +50,7 @@ export type LeadFiltersPatch = Partial<{
   end: string | null;
   q: string;
   assignee: string | null;
-  specialty: string | null;
+  sector: string | null;
   source: string | null;
   tags: string[];
   page: number;
@@ -89,7 +89,7 @@ export function useLeadFilters(): {
       end: sp.get("end"),
       q: sp.get("q") ?? "",
       assignee: sp.get("assignee"),
-      specialty: sp.get("specialty"),
+      sector: sp.get("sector"),
       source: sp.get("source"),
       tags: parseTags(sp.get("tags")),
       page: Math.max(1, Number.parseInt(sp.get("page") ?? "1", 10) || 1),
@@ -114,7 +114,7 @@ export function useLeadFilters(): {
       setOrDel("end", patch.end);
       setOrDel("q", patch.q ?? undefined);
       setOrDel("assignee", patch.assignee);
-      setOrDel("specialty", patch.specialty);
+      setOrDel("sector", patch.sector);
       setOrDel("source", patch.source);
       if (patch.tags !== undefined) {
         if (patch.tags.length === 0) next.delete("tags");
@@ -128,7 +128,7 @@ export function useLeadFilters(): {
         patch.end !== undefined ||
         patch.q !== undefined ||
         patch.assignee !== undefined ||
-        patch.specialty !== undefined ||
+        patch.sector !== undefined ||
         patch.source !== undefined ||
         patch.tags !== undefined;
       if (mutatedOther && !patch.keepPage) {

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { LeadForm } from "@/components/leads/lead-form";
+import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
+import { useEscapeKey } from "@/hooks/use-escape-key";
 import type { CustomField, CustomFieldValue, Lead, LeadDetailed } from "@/lib/types/database";
 import type { KanbanLead } from "@/lib/supabase/dashboard-data";
 
@@ -15,14 +17,7 @@ interface KanbanLeadEditModalProps {
 }
 
 const KANBAN_LEAD_FIELDS =
-  "id,name,status,stage_id,specialty_id,specialty_name,specialty_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at";
-
-const GENDER_LABELS: Record<string, string> = {
-  feminino: "Feminino",
-  masculino: "Masculino",
-  outro: "Outro",
-  nao_informar: "Prefiro não informar",
-};
+  "id,name,status,stage_id,sector_id,sector_name,sector_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at";
 
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
@@ -50,6 +45,11 @@ export function KanbanLeadEditModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+
+  // Esc fecha o modal — desabilitado durante edicao para evitar perder
+  // alteracoes nao salvas; o botao "Cancelar" do form de edicao trata
+  // o caminho controlado de saida.
+  useEscapeKey(!editing, onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,12 +124,6 @@ export function KanbanLeadEditModal({
   customValues.forEach((v) => {
     if (v.value) valuesMap[v.custom_field_id] = v.value;
   });
-
-  const filledCustomFields = customFields.filter((f) => valuesMap[f.id]);
-
-  const formattedBirthdate = detailed?.birthdate
-    ? new Date(detailed.birthdate + "T12:00:00").toLocaleDateString("pt-BR")
-    : null;
 
   return (
     <div
@@ -207,58 +201,60 @@ export function KanbanLeadEditModal({
           {/* Modo visualização */}
           {!loading && !error && detailed && !editing && (
             <div className="space-y-5">
-              {/* Bloco principal */}
+              {/* Bloco principal — espelha as secoes do form de cadastro
+                   (lead-form.tsx). Campos legados (E-mail, nascimento, genero,
+                   guardian, alergias, clinical_notes) foram removidos do form
+                   e tambem aqui, para nao mostrar "Nao preenchido" em campos
+                   que o operador nem tem como editar. */}
               <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
                 <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
                   Informações gerais
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <InfoRow label="Telefone" value={detailed.phone} />
-                  <InfoRow label="E-mail" value={detailed.email} />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                      Telefone
+                    </span>
+                    {detailed.phone ? (
+                      <span className="inline-flex items-center gap-2 text-sm text-gray-800">
+                        {detailed.phone}
+                        <WhatsAppLeadLink
+                          domain={domain}
+                          phone={detailed.phone}
+                          leadId={detailed.id}
+                        />
+                      </span>
+                    ) : (
+                      <span className="text-sm italic text-gray-400">
+                        Não preenchido
+                      </span>
+                    )}
+                  </div>
                   <InfoRow label="Fonte" value={detailed.source_name} />
                   <InfoRow
-                    label="Responsável"
-                    value={
-                      detailed.assigned_to_name
-                        ? detailed.assigned_is_dentist
-                          ? `Dr(a). ${detailed.assigned_to_name}`
-                          : detailed.assigned_to_name
-                        : null
-                    }
+                    label="Operador responsável"
+                    value={detailed.assigned_to_name}
                   />
-                  <InfoRow label="Especialidade" value={detailed.specialty_name} />
+                  {detailed.sector_name ? (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                        Setor
+                      </span>
+                      <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{
+                            backgroundColor:
+                              detailed.sector_color ?? "#9ca3af",
+                          }}
+                        />
+                        {detailed.sector_name}
+                      </span>
+                    </div>
+                  ) : (
+                    <InfoRow label="Setor" value={null} />
+                  )}
                 </div>
-              </div>
-
-              {/* Dados pessoais */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
-                <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Dados pessoais
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <InfoRow label="Data de nascimento" value={formattedBirthdate} />
-                  <InfoRow label="Gênero" value={detailed.gender ? GENDER_LABELS[detailed.gender] ?? detailed.gender : null} />
-                </div>
-              </div>
-
-              {/* Responsável (menores) */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
-                <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Responsável (para menores)
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <InfoRow label="Nome" value={detailed.guardian_name} />
-                  <InfoRow label="Telefone" value={detailed.guardian_phone} />
-                </div>
-              </div>
-
-              {/* Clínico */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
-                  Clínico
-                </p>
-                <InfoRow label="Alergias" value={detailed.allergies} />
-                <InfoRow label="Observações clínicas" value={detailed.clinical_notes} />
               </div>
 
               {/* Financeiro — só mostra quando há valores. Esses campos
@@ -274,9 +270,9 @@ export function KanbanLeadEditModal({
                       value={
                         detailed.closing_value != null
                           ? new Intl.NumberFormat("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            }).format(detailed.closing_value)
+                            style: "currency",
+                            currency: "BRL",
+                          }).format(detailed.closing_value)
                           : null
                       }
                     />
@@ -285,9 +281,9 @@ export function KanbanLeadEditModal({
                       value={
                         detailed.down_payment != null
                           ? new Intl.NumberFormat("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            }).format(detailed.down_payment)
+                            style: "currency",
+                            currency: "BRL",
+                          }).format(detailed.down_payment)
                           : null
                       }
                     />

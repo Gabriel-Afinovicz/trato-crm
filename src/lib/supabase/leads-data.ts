@@ -25,13 +25,15 @@ const EMPTY_MINIDASH: MinidashCohort = {
  */
 export async function getKanbanMinidash(
   companyId: string,
-  range: { start: Date; end: Date }
+  range: { start: Date; end: Date },
+  sectorId?: string | null
 ): Promise<MinidashCohort> {
   const supabase = await createClient();
   const { data } = await supabase.rpc("get_kanban_minidash", {
     p_company_id: companyId,
     p_start: range.start.toISOString(),
     p_end: range.end.toISOString(),
+    p_sector_id: sectorId ?? null,
   });
   return (data as unknown as MinidashCohort) ?? EMPTY_MINIDASH;
 }
@@ -47,8 +49,9 @@ export interface LeadListFilters {
   assigneeId?: string;
   /** "unassigned" trata leads sem responsável. */
   assigneeMode?: "any" | "unassigned" | "specific";
-  specialtyId?: string;
-  specialtyMode?: "any" | "none" | "specific";
+  /** Filtra por setor especifico. "none" = leads sem setor. "any" = todos. */
+  sectorMode?: "any" | "none" | "specific";
+  sectorId?: string;
   sourceId?: string;
   tagIds?: string[];
   page: number;
@@ -128,10 +131,10 @@ export async function listLeads(
     query = query.eq("assigned_to", filters.assigneeId);
   }
 
-  if (filters.specialtyMode === "none") {
-    query = query.is("specialty_id", null);
-  } else if (filters.specialtyMode === "specific" && filters.specialtyId) {
-    query = query.eq("specialty_id", filters.specialtyId);
+  if (filters.sectorMode === "none") {
+    query = query.is("sector_id", null);
+  } else if (filters.sectorMode === "specific" && filters.sectorId) {
+    query = query.eq("sector_id", filters.sectorId);
   }
 
   if (filters.sourceId) {

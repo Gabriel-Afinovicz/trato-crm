@@ -87,7 +87,7 @@ export function AgendaBlocksManager() {
   async function handleAdd() {
     if (!companyId) return;
     if (!dentistId && !roomId) {
-      setError("Escolha um dentista ou uma sala para o bloqueio.");
+      setError("Escolha um profissional ou uma sala para o bloqueio.");
       return;
     }
     setError(null);
@@ -174,7 +174,7 @@ export function AgendaBlocksManager() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-600">
-              Dentista
+              Profissional
             </label>
             <select
               value={dentistId}
@@ -249,7 +249,7 @@ export function AgendaBlocksManager() {
                   </span>
                   {b.dentist_id && (
                     <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] text-gray-700">
-                      Dr(a). {dentistById.get(b.dentist_id)?.name ?? "—"}
+                      {dentistById.get(b.dentist_id)?.name ?? "—"}
                     </span>
                   )}
                   {b.room_id && (

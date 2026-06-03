@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useEscapeKey } from "@/hooks/use-escape-key";
 import type { KanbanLead } from "@/lib/supabase/dashboard-data";
 
 interface LostReasonModalProps {
@@ -24,6 +25,9 @@ export function LostReasonModal({
 }: LostReasonModalProps) {
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Esc cancela — exceto enquanto a operacao esta enviando.
+  useEscapeKey(!submitting, onCancel);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

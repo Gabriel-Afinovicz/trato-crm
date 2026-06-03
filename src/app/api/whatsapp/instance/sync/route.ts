@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminForDomain } from "@/lib/supabase/require-admin-for-domain";
 import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import {
   canonicalRemoteJid,
   isIndividualJid,
@@ -59,10 +60,8 @@ function sleep(ms: number): Promise<void> {
 
 export async function POST(req: NextRequest) {
   if (!evolution.isConfigured()) {
-    return NextResponse.json(
-      { error: "Evolution API nao configurada." },
-      { status: 503 }
-    );
+    const f = friendlyEvolutionError({ name: "EvolutionConfigError" }, "sync");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   let body: SyncPayload;
@@ -134,31 +133,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Marca inicio do sync. `sync_finished_at = null` sinaliza para a UI
+  // (banner de "Sincronizando..." na aba Conversas) que ha trabalho em
+  // andamento. O finally no fim deste handler garante que o timestamp
+  // de termino sera gravado mesmo em caso de erro.
   await supabaseAdmin
     .from("whatsapp_instances")
-    .update({ last_manual_sync_at: new Date().toISOString() })
+    .update({
+      last_manual_sync_at: new Date().toISOString(),
+      sync_finished_at: null,
+    })
     .eq("id", instance.id);
 
-  // Resolve nome real da instancia no Evolution (case-insensitive)
-  let realInstanceName = instance.instance_name;
-  try {
-    const evoInstances = await evolution.fetchInstances();
-    const exact = evoInstances.find((i) => i.name === instance.instance_name);
-    if (!exact) {
-      const ci = evoInstances.find(
-        (i) => i.name.toLowerCase() === instance.instance_name.toLowerCase()
-      );
-      if (ci) {
-        realInstanceName = ci.name;
-        await supabaseAdmin
-          .from("whatsapp_instances")
-          .update({ instance_name: ci.name })
-          .eq("id", instance.id);
-      }
+  async function markFinished() {
+    try {
+      await supabaseAdmin
+        .from("whatsapp_instances")
+        .update({ sync_finished_at: new Date().toISOString() })
+        .eq("id", instance!.id);
+    } catch {
+      /* best-effort */
     }
-  } catch {
-    /* segue */
   }
+
+  try {
+    // Resolve nome real da instancia no Evolution (case-insensitive)
+    let realInstanceName = instance.instance_name;
+    try {
+      const evoInstances = await evolution.fetchInstances();
+      const exact = evoInstances.find((i) => i.name === instance.instance_name);
+      if (!exact) {
+        const ci = evoInstances.find(
+          (i) => i.name.toLowerCase() === instance.instance_name.toLowerCase()
+        );
+        if (ci) {
+          realInstanceName = ci.name;
+          await supabaseAdmin
+            .from("whatsapp_instances")
+            .update({ instance_name: ci.name })
+            .eq("id", instance.id);
+        }
+      }
+    } catch {
+      /* segue */
+    }
 
   // Garante que o webhook esta configurado na instancia (idempotente).
   // Como esta instancia pode ter sido criada manualmente no Evolution,
@@ -173,11 +191,9 @@ export async function POST(req: NextRequest) {
   try {
     evoChats = await evolution.findChats(realInstanceName);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    return NextResponse.json(
-      { error: `Falha ao buscar conversas: ${message}` },
-      { status: 502 }
-    );
+    console.error("[whatsapp/sync] upstream error (findChats)", err);
+    const f = friendlyEvolutionError(err, "sync");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   // Normaliza @lid -> @s.whatsapp.net via lastMessage.key.remoteJidAlt antes
@@ -352,18 +368,22 @@ export async function POST(req: NextRequest) {
       .from("whatsapp_chats")
       .insert(toInsert);
     if (error) {
-      return NextResponse.json(
-        { error: `Erro ao inserir chats: ${error.message}` },
-        { status: 500 }
-      );
+      console.error("[whatsapp/sync] failed to insert chats", error);
+      const f = friendlyEvolutionError(error, "sync");
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
     inserted = toInsert.length;
   }
 
-  return NextResponse.json({
-    synced: inserted,
-    updated,
-    total: evoChats.length,
-    individual: individualChats.length,
-  });
+    return NextResponse.json({
+      synced: inserted,
+      updated,
+      total: evoChats.length,
+      individual: individualChats.length,
+    });
+  } finally {
+    // Garante que o flag de "sincronizando" cai mesmo se algum return
+    // dentro do try saiu antes do final (erros 502/500 etc).
+    await markFinished();
+  }
 }

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
+import { formatDateInTz } from "@/lib/utils/timezone";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { StageBadge } from "@/components/dashboard/stage-badge";
 import type { Lead, PipelineStage } from "@/lib/types/database";
@@ -23,6 +25,7 @@ interface RecentLeadsProps {
 export function RecentLeads({ domain, initialLeads, stages }: RecentLeadsProps) {
   const router = useRouter();
   const { companyId, loading: companyLoading } = useCurrentCompany();
+  const companyTz = useCompanyTimezone();
   const [leads, setLeads] = useState<Lead[]>(initialLeads ?? []);
   const [loading, setLoading] = useState(initialLeads === undefined);
 
@@ -109,7 +112,7 @@ export function RecentLeads({ domain, initialLeads, stages }: RecentLeadsProps) 
           <thead>
             <tr className="border-b border-gray-100 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               <th className="px-6 py-3">Nome</th>
-              <th className="px-6 py-3">Contato</th>
+              <th className="px-6 py-3">Telefone</th>
               <th className="px-6 py-3">Status</th>
               <th className="px-6 py-3">Data</th>
             </tr>
@@ -145,7 +148,7 @@ export function RecentLeads({ domain, initialLeads, stages }: RecentLeadsProps) 
                     />
                   </td>
                   <td className="whitespace-nowrap px-6 py-3 text-gray-500">
-                    {new Date(lead.created_at).toLocaleDateString("pt-BR")}
+                    {formatDateInTz(lead.created_at, companyTz)}
                   </td>
                 </tr>
               );

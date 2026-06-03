@@ -39,7 +39,7 @@ export function MasterHeader() {
               href="/wosnicz/dashboard"
               className="rounded-lg px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
             >
-              Clínicas
+              Organizações
             </Link>
           )}
           <Link
@@ -59,7 +59,7 @@ export function MasterHeader() {
                 d="M12 4.5v15m7.5-7.5h-15"
               />
             </svg>
-            Nova Clínica
+            Nova Organização
           </Link>
           <button
             onClick={handleLogout}

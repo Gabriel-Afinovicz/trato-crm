@@ -12,6 +12,10 @@ interface LeadHeaderProps {
   leadId: string;
   leadName: string;
   domain: string;
+  // Quando o lead ja tem um agendamento futuro ativo (scheduled/confirmed),
+  // o botao "Agendar" e substituido por "Visualizar agendamento" — leva
+  // direto pra agenda no dia do evento com o card de acoes ja aberto.
+  nextAppointment?: { id: string; startsAt: string } | null;
 }
 
 /**
@@ -19,7 +23,12 @@ interface LeadHeaderProps {
  * pelas etapas dinâmicas do kanban (sem dropdown legado de
  * Novo/Agendado/.../Perdido).
  */
-export function LeadHeader({ leadId, leadName, domain }: LeadHeaderProps) {
+export function LeadHeader({
+  leadId,
+  leadName,
+  domain,
+  nextAppointment = null,
+}: LeadHeaderProps) {
   const router = useRouter();
   const { companyId } = useCurrentCompany();
   const [showBook, setShowBook] = useState(false);
@@ -31,6 +40,10 @@ export function LeadHeader({ leadId, leadName, domain }: LeadHeaderProps) {
 
   useEffect(() => {
     if (!companyId) return;
+    // Quando o lead ja tem agendamento, o botao "Agendar" e substituido
+    // por "Visualizar agendamento" (Link) — o modal de criar nunca abre,
+    // entao podemos pular o load de salas/servicos/profissionais.
+    if (nextAppointment) return;
     let cancelled = false;
     const supabase = createClient();
     (async () => {
@@ -68,7 +81,7 @@ export function LeadHeader({ leadId, leadName, domain }: LeadHeaderProps) {
     return () => {
       cancelled = true;
     };
-  }, [companyId]);
+  }, [companyId, nextAppointment]);
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -85,16 +98,29 @@ export function LeadHeader({ leadId, leadName, domain }: LeadHeaderProps) {
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setShowBook(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-          </svg>
-          Agendar
-        </button>
+        {nextAppointment ? (
+          <Link
+            href={`/${domain}/agenda?date=${nextAppointment.startsAt.slice(0, 10)}&appointment=${nextAppointment.id}`}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+            title="Ver detalhes do agendamento na tela de Agenda"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+            </svg>
+            Visualizar agendamento
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowBook(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+            </svg>
+            Agendar
+          </button>
+        )}
         <Link
           href={`/${domain}/leads/${leadId}/edit`}
           className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"

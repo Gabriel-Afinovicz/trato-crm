@@ -61,14 +61,14 @@ export async function POST(req: NextRequest) {
 
   if (!company) {
     return NextResponse.json(
-      { error: "Clínica não encontrada." },
+      { error: "Organização não encontrada." },
       { status: 404 }
     );
   }
 
   if ((company as { domain: string }).domain === "wosnicz") {
     return NextResponse.json(
-      { error: "Não é permitido alterar a clínica-sistema Wosnicz." },
+      { error: "Não é permitido alterar a organização-sistema Wosnicz." },
       { status: 400 }
     );
   }

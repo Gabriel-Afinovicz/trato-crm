@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   DndContext,
   DragOverlay,
@@ -22,7 +23,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { useLeadFilters } from "@/hooks/use-lead-filters";
-import type { PipelineStage, Specialty } from "@/lib/types/database";
+import type { PipelineStage, Sector } from "@/lib/types/database";
 import type {
   KanbanLead,
   KanbanOperator,
@@ -33,6 +34,8 @@ import { LostReasonModal } from "./lost-reason-modal";
 import { KanbanLeadEditModal } from "./kanban-lead-edit-modal";
 import { AddStageColumn } from "./add-stage-column";
 import { EditStageModal } from "./edit-stage-modal";
+import { seedPipelineTemplate } from "@/lib/pipeline-templates";
+import { PipelineTemplateEmptyState } from "./pipeline-template-empty-state";
 
 type LaneMode = "none" | "dentist";
 
@@ -41,7 +44,6 @@ interface LeadKanbanBoardProps {
   initialLeads: KanbanLead[];
   operators: KanbanOperator[];
   stages: PipelineStage[];
-  specialties: Specialty[];
   lastActivityByLead: Record<string, string>;
   initialRange: { start: string; end: string };
   /**
@@ -136,7 +138,6 @@ export function LeadKanbanBoard({
   initialLeads,
   operators,
   stages: initialStages,
-  specialties,
   lastActivityByLead,
   initialRange,
   onLeadsChange,
@@ -150,6 +151,7 @@ export function LeadKanbanBoard({
     groupByStage(initialLeads, initialStages)
   );
   const [isFetching, setIsFetching] = useState(false);
+  const [seedingPipeline, setSeedingPipeline] = useState(false);
 
   // Refs para a barra de rolagem horizontal espelhada no topo do board.
   // O `columnsRef` é o container real (flex de colunas). `topScrollRef`
@@ -199,7 +201,6 @@ export function LeadKanbanBoard({
     sourceOrderedIds: string[];
     fromStageId: string;
     toStageId: string;
-    specialtyId: string | null;
     snapshot: BoardState;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +210,30 @@ export function LeadKanbanBoard({
 
   const [search, setSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
-  const [specialtyFilter, setSpecialtyFilter] = useState<string>("all");
+  // Filtro de Setor sincronizado com a URL (`?sector=`) e replicado nos
+  // contadores do minidash. Usa o hook useLeadFilters para que o estado
+  // sobreviva ao reload e ao deep-link.
+  const sectorFilter = filters.state.sector ?? "all";
+  const setSectorFilter = useCallback(
+    (next: string) => {
+      filters.setFilters({ sector: next === "all" ? null : next });
+    },
+    [filters]
+  );
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    fetch(`/api/sectors?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: Sector[] } | null) => {
+        if (!cancelled && data?.items) setSectors(data.items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
   const [laneMode, setLaneMode] = useState<LaneMode>("none");
   const [showInactiveOnly, setShowInactiveOnly] = useState(false);
 
@@ -254,11 +278,11 @@ export function LeadKanbanBoard({
       l.assigned_to !== assigneeFilter
     )
       return false;
-    if (specialtyFilter === "none" && l.specialty_id) return false;
+    if (sectorFilter === "none" && l.sector_id) return false;
     if (
-      specialtyFilter !== "all" &&
-      specialtyFilter !== "none" &&
-      l.specialty_id !== specialtyFilter
+      sectorFilter !== "all" &&
+      sectorFilter !== "none" &&
+      l.sector_id !== sectorFilter
     )
       return false;
     if (showInactiveOnly) {
@@ -322,10 +346,8 @@ export function LeadKanbanBoard({
     visibleStages,
     search,
     assigneeFilter,
-    specialtyFilter,
     showInactiveOnly,
     laneMode,
-    specialties,
     operators,
     dentists,
     lastActivityByLead,
@@ -525,24 +547,37 @@ export function LeadKanbanBoard({
     toStageId: string,
     destOrderedIds: string[],
     sourceOrderedIds: string[],
-    specialtyId: string | null,
     snapshot: BoardState,
     lostReason?: string
   ) {
-    const supabase = createClient();
-    const { error: rpcErr } = await supabase.rpc("apply_kanban_move_v2", {
-      p_lead_id: leadId,
-      p_from_stage_id: fromStageId,
-      p_to_stage_id: toStageId,
-      p_dest_ordered_ids: destOrderedIds,
-      p_source_ordered_ids: sourceOrderedIds,
-      p_specialty_id: specialtyId,
-      p_lost_reason: lostReason ?? null,
-    });
+    // Antes era uma chamada direta a RPC do browser. Agora roteamos por uma
+    // API server-side que executa a MESMA RPC e, alem disso, dispara efeitos
+    // colaterais de integracao (ex.: criar paciente na Clinicorp quando a
+    // etapa de destino e "ganho"). A UX otimista e mantida: a UI ja foi
+    // atualizada antes desta chamada e revertemos em caso de erro.
+    let moveFailed = false;
+    try {
+      const res = await fetch(`/api/leads/${leadId}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromStageId,
+          toStageId,
+          destOrderedIds,
+          sourceOrderedIds,
+          lostReason: lostReason ?? null,
+        }),
+      });
+      if (!res.ok) moveFailed = true;
+    } catch {
+      moveFailed = true;
+    }
 
-    if (rpcErr) {
+    if (moveFailed) {
       setBoard(snapshot);
-      setError("Falha ao mover o lead. Alterações revertidas.");
+      const msg = "Falha ao mover o lead. Alterações revertidas.";
+      setError(msg);
+      toast.error("Nao foi possivel mover o lead", { description: msg });
       return;
     }
 
@@ -604,7 +639,6 @@ export function LeadKanbanBoard({
           sourceOrderedIds,
           fromStageId,
           toStageId,
-          specialtyId: null,
           snapshot,
         });
         return;
@@ -616,7 +650,6 @@ export function LeadKanbanBoard({
         toStageId,
         destOrderedIds,
         sourceOrderedIds,
-        null,
         snapshot
       );
     },
@@ -687,8 +720,6 @@ export function LeadKanbanBoard({
     const toStageId = target.stageId;
     const toStage = stageById.get(toStageId);
 
-    const specialtyToSet: string | null = null;
-
     if (fromStageId === toStageId) {
       const items = board[fromStageId];
       const oldIndex = items.findIndex((l) => l.id === activeIdStr);
@@ -702,16 +733,12 @@ export function LeadKanbanBoard({
       const normalized = reordered.map((l, i) => ({
         ...l,
         kanban_position: i,
-        ...(l.id === activeIdStr && specialtyToSet !== null
-          ? { specialty_id: specialtyToSet }
-          : {}),
       }));
       setBoard({ ...board, [fromStageId]: normalized });
 
       const destOrderedIds = normalized.map((l) => l.id);
       if (
         oldIndex === newIndex &&
-        specialtyToSet === null &&
         (laneMode !== "dentist" || target.laneKey === null)
       ) {
         return;
@@ -723,7 +750,6 @@ export function LeadKanbanBoard({
         toStageId,
         destOrderedIds,
         [],
-        specialtyToSet,
         snapshot
       );
 
@@ -747,7 +773,6 @@ export function LeadKanbanBoard({
       ...sourceArr[movingIdx],
       stage_id: toStageId,
       status: toStage?.legacy_status ?? sourceArr[movingIdx].status,
-      ...(specialtyToSet !== null ? { specialty_id: specialtyToSet } : {}),
     };
     const destArr = board[toStageId] ?? [];
     const overIndex = destArr.findIndex((l) => l.id === overIdStr);
@@ -785,7 +810,6 @@ export function LeadKanbanBoard({
         sourceOrderedIds,
         fromStageId,
         toStageId,
-        specialtyId: specialtyToSet,
         snapshot,
       });
       return;
@@ -797,7 +821,6 @@ export function LeadKanbanBoard({
       toStageId,
       destOrderedIds,
       sourceOrderedIds,
-      specialtyToSet,
       snapshot
     );
   }
@@ -805,6 +828,31 @@ export function LeadKanbanBoard({
   function handleDragCancel() {
     setActiveId(null);
     dragSourceStageIdRef.current = null;
+  }
+
+  async function handleLoadPipelineTemplate(templateId: string) {
+    if (!companyId) return;
+    setSeedingPipeline(true);
+    const supabase = createClient();
+    const result = await seedPipelineTemplate(supabase, companyId, templateId);
+    if (result.error) {
+      setError(`Falha ao carregar template de pipeline: ${result.error}`);
+      setSeedingPipeline(false);
+      return;
+    }
+    const { data: refreshed } = await supabase
+      .from("pipeline_stages")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("position", { ascending: true });
+    if (refreshed) {
+      const newStages = refreshed as unknown as PipelineStage[];
+      setStages(newStages);
+      const emptyBoard: BoardState = {};
+      for (const s of newStages) emptyBoard[s.id] = [];
+      setBoard(emptyBoard);
+    }
+    setSeedingPipeline(false);
   }
 
   const stats = useMemo(() => {
@@ -865,24 +913,26 @@ export function LeadKanbanBoard({
           <option value="unassigned">Sem responsável</option>
           {operators.map((op) => (
             <option key={op.id} value={op.id}>
-              {op.is_dentist ? `Dr(a). ${op.name}` : op.name}
+              {op.name}
             </option>
           ))}
         </select>
 
-        <select
-          value={specialtyFilter}
-          onChange={(e) => setSpecialtyFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
-        >
-          <option value="all">Todas especialidades</option>
-          <option value="none">Sem especialidade</option>
-          {specialties.map((sp) => (
-            <option key={sp.id} value={sp.id}>
-              {sp.name}
-            </option>
-          ))}
-        </select>
+        {sectors.length > 0 && (
+          <select
+            value={sectorFilter}
+            onChange={(e) => setSectorFilter(e.target.value)}
+            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+          >
+            <option value="all">Todos setores</option>
+            <option value="none">Sem setor</option>
+            {sectors.map((sec) => (
+              <option key={sec.id} value={sec.id}>
+                {sec.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="inline-flex rounded-md border border-gray-300 bg-white p-0.5">
           {(["none", "dentist"] as LaneMode[]).map((mode) => (
@@ -915,7 +965,7 @@ export function LeadKanbanBoard({
 
         {(search ||
           assigneeFilter !== "all" ||
-          specialtyFilter !== "all" ||
+          sectorFilter !== "all" ||
           showInactiveOnly ||
           laneMode !== "none") && (
           <button
@@ -923,7 +973,7 @@ export function LeadKanbanBoard({
             onClick={() => {
               setSearch("");
               setAssigneeFilter("all");
-              setSpecialtyFilter("all");
+              setSectorFilter("all");
               setShowInactiveOnly(false);
               setLaneMode("none");
             }}
@@ -952,6 +1002,15 @@ export function LeadKanbanBoard({
         </div>
       )}
 
+      {stages.length === 0 && !isFetching && (
+        <PipelineTemplateEmptyState
+          variant="kanban"
+          loading={seedingPipeline}
+          onLoadTemplate={handleLoadPipelineTemplate}
+        />
+      )}
+
+      {stages.length > 0 && (
       <DndContext
         id="lead-kanban"
         sensors={sensors}
@@ -1058,6 +1117,7 @@ export function LeadKanbanBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+      )}
 
       {editingLeadId && (
         <KanbanLeadEditModal
@@ -1119,7 +1179,6 @@ export function LeadKanbanBoard({
               pendingLost.toStageId,
               pendingLost.destOrderedIds,
               pendingLost.sourceOrderedIds,
-              pendingLost.specialtyId,
               pendingLost.snapshot,
               reason
             );

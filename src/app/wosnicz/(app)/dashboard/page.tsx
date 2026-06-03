@@ -65,13 +65,13 @@ export default async function WosniczDashboardPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Visão Geral</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Gerencie todas as clínicas cadastradas na plataforma.
+          Gerencie todas as organizações cadastradas na plataforma.
         </p>
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Clínicas ativas" value={totalClinics} />
-        <StatCard label="Usuários (clínicas)" value={totalUsers} />
+        <StatCard label="Organizações ativas" value={totalClinics} />
+        <StatCard label="Usuários (organizações)" value={totalUsers} />
         <StatCard label="Leads (plataforma)" value={totalLeads} />
       </div>
 

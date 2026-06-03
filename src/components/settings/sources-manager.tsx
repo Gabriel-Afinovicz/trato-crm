@@ -16,6 +16,12 @@ export function SourcesManager() {
   const [editName, setEditName] = useState("");
   const [operatingId, setOperatingId] = useState<string | null>(null);
 
+  // Mapeamento Clinicorp: campanhas disponiveis (quando a integracao esta
+  // configurada) para popular o dropdown de cada fonte.
+  const [campaigns, setCampaigns] = useState<string[] | null>(null);
+  const [clinicorpReady, setClinicorpReady] = useState(false);
+  const [savingBoardId, setSavingBoardId] = useState<string | null>(null);
+
   async function fetchSources() {
     if (!companyId) return;
     const supabase = createClient();
@@ -28,6 +34,30 @@ export function SourcesManager() {
     setLoading(false);
   }
 
+  async function fetchCampaigns() {
+    if (!companyId) return;
+    try {
+      const res = await fetch(
+        `/api/integrations/clinicorp/campaigns?companyId=${companyId}`
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          campaigns?: { name: string }[];
+        };
+        setCampaigns((payload.campaigns ?? []).map((c) => c.name));
+        setClinicorpReady(true);
+      } else {
+        // 409 = integracao nao configurada; outros = erro upstream. Em ambos
+        // os casos liberamos o campo de texto livre como fallback.
+        setCampaigns(null);
+        setClinicorpReady(false);
+      }
+    } catch {
+      setCampaigns(null);
+      setClinicorpReady(false);
+    }
+  }
+
   useEffect(() => {
     if (companyLoading) return;
     if (!companyId) {
@@ -36,8 +66,30 @@ export function SourcesManager() {
       return;
     }
     fetchSources();
+    fetchCampaigns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyLoading, companyId]);
+
+  async function handleUpdateBoard(id: string, boardName: string) {
+    setError(null);
+    setSavingBoardId(id);
+    const supabase = createClient();
+    const value = boardName.trim() || null;
+    const { error: updateError } = await supabase
+      .from("lead_sources")
+      .update({ clinicorp_board_name: value })
+      .eq("id", id);
+    if (updateError) {
+      setError(`Erro ao mapear campanha: ${updateError.message}`);
+    } else {
+      setSources((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, clinicorp_board_name: value } : s
+        )
+      );
+    }
+    setSavingBoardId(null);
+  }
 
   async function handleCreate() {
     if (!newName.trim() || !companyId) return;
@@ -148,13 +200,61 @@ export function SourcesManager() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-sm font-medium ${source.is_active ? "text-gray-900" : "text-gray-400 line-through"}`}>
-                        {source.name}
-                      </span>
-                      {!source.is_active && (
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Inativa</span>
-                      )}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-medium ${source.is_active ? "text-gray-900" : "text-gray-400 line-through"}`}>
+                          {source.name}
+                        </span>
+                        {!source.is_active && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Inativa</span>
+                        )}
+                      </div>
+                      {/* Mapeamento Clinicorp: campanha (BoardName) desta fonte */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                          Campanha Clinicorp
+                        </span>
+                        {clinicorpReady && campaigns ? (
+                          <select
+                            value={source.clinicorp_board_name ?? ""}
+                            disabled={savingBoardId === source.id}
+                            onChange={(e) =>
+                              handleUpdateBoard(source.id, e.target.value)
+                            }
+                            className="rounded border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                          >
+                            <option value="">— Não enviar —</option>
+                            {/* Mantem o valor salvo mesmo se nao estiver na lista atual */}
+                            {source.clinicorp_board_name &&
+                              !campaigns.includes(source.clinicorp_board_name) && (
+                                <option value={source.clinicorp_board_name}>
+                                  {source.clinicorp_board_name} (não encontrada)
+                                </option>
+                              )}
+                            {campaigns.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            defaultValue={source.clinicorp_board_name ?? ""}
+                            placeholder="nome da campanha (opcional)"
+                            disabled={savingBoardId === source.id}
+                            onBlur={(e) => {
+                              if (
+                                (e.target.value.trim() || null) !==
+                                (source.clinicorp_board_name ?? null)
+                              ) {
+                                handleUpdateBoard(source.id, e.target.value);
+                              }
+                            }}
+                            className="w-56 rounded border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                          />
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={() => { setEditingId(source.id); setEditName(source.name); }} className="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700">Editar</button>

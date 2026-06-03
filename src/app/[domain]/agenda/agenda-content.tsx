@@ -22,6 +22,8 @@ import {
   type ResourceAxis,
 } from "@/components/agenda/agenda-grid";
 import { AgendaMonth } from "@/components/agenda/agenda-month";
+import { AgendaEmptyState } from "@/components/agenda/agenda-empty-state";
+import { isEditableTarget, hasCommandModifier } from "@/lib/utils/keyboard";
 
 type ViewMode = "day" | "week" | "month";
 
@@ -189,6 +191,24 @@ export function AgendaContent({
     return holidayByDate.get(key) ?? null;
   }
 
+  // Deep-link `?appointment=<id>`: vindo do header do lead (botao
+  // "Visualizar agendamento"), localiza o appointment dentro do range
+  // ja carregado e abre o card de acoes. Apos abrir, limpa o param da
+  // URL via history.replaceState — assim fechar/reabrir nao reabre o
+  // modal e o usuario fica com a URL limpa.
+  useEffect(() => {
+    const wanted = params.get("appointment");
+    if (!wanted) return;
+    const target = appointments.find((a) => a.id === wanted);
+    if (!target) return;
+    setActing(target);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("appointment");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [params, appointments]);
+
   useEffect(() => {
     if (appointments.length === 0) return;
     let cancelled = false;
@@ -257,6 +277,55 @@ export function AgendaContent({
     }
   }
 
+  // Atalhos da Agenda: T (hoje), ←/→ (periodo anterior/proximo),
+  // D/W/M (visao Dia/Semana/Mes), N (novo agendamento). So fora de campos
+  // de texto e sem modificadores de comando.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (isEditableTarget(e.target) || hasCommandModifier(e)) return;
+      switch (e.key) {
+        case "t":
+        case "T":
+          e.preventDefault();
+          navigate(new Date(), viewMode);
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          moveBy(-1);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          moveBy(1);
+          break;
+        case "d":
+        case "D":
+          e.preventDefault();
+          navigate(dateObj, "day");
+          break;
+        case "w":
+        case "W":
+          e.preventDefault();
+          navigate(dateObj, "week");
+          break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          navigate(dateObj, "month");
+          break;
+        case "n":
+        case "N":
+          e.preventDefault();
+          openCreateAt();
+          break;
+        default:
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, dateObj]);
+
   async function handleMove(target: AgendaDropTarget) {
     setMoveError(null);
     const appointment = appointments.find((a) => a.id === target.appointmentId);
@@ -305,7 +374,7 @@ export function AgendaContent({
     }
     if (conflict === true) {
       setMoveError(
-        "Conflito: dentista, sala ou bloqueio já ocupam o novo horário."
+        "Conflito: profissional, sala ou bloqueio já ocupam o novo horário."
       );
       return;
     }
@@ -346,7 +415,7 @@ export function AgendaContent({
   const resourceList = useMemo(
     () =>
       resourceAxis === "dentist"
-        ? dentists.map((d) => ({ id: d.id, name: `Dr(a). ${d.name}` }))
+        ? dentists.map((d) => ({ id: d.id, name: d.name }))
         : resourceAxis === "room"
           ? rooms.map((r) => ({ id: r.id, name: r.name }))
           : [],
@@ -368,6 +437,12 @@ export function AgendaContent({
     return a;
   }, [dateObj]);
 
+  // Agenda nao habilitada: nenhuma faixa de horario cadastrada para a
+  // organizacao. Bloqueia a UI de grid/agendamento e exibe um empty
+  // state direcionando para Configuracoes > Horarios (mesmo padrao
+  // visual do empty state do Kanban/Funil para coerencia).
+  const agendaEnabled = clinicHours.length > 0;
+
   return (
     // Antes `min-h-screen`; agora `min-h-full` para respeitar a área
     // disponível abaixo da barra global do AppShell.
@@ -377,24 +452,33 @@ export function AgendaContent({
           <div>
             <h1 className="text-lg font-semibold text-gray-900">Agenda</h1>
             <p className="text-xs text-gray-500">
-              {viewMode === "day"
-                ? fmtTitle(dateObj)
-                : viewMode === "week"
-                  ? `Semana de ${fmtDay(startObj)} a ${fmtDay(addDays(endObj, -1))}`
-                  : fmtMonthTitle(monthAnchor)}
+              {agendaEnabled
+                ? viewMode === "day"
+                  ? fmtTitle(dateObj)
+                  : viewMode === "week"
+                    ? `Semana de ${fmtDay(startObj)} a ${fmtDay(addDays(endObj, -1))}`
+                    : fmtMonthTitle(monthAnchor)
+                : "Configure os horários de funcionamento para começar."}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => openCreateAt()}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
-            >
-              + Agendar
-            </button>
-          </div>
+          {agendaEnabled && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => openCreateAt()}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+              >
+                + Agendar
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
+      {!agendaEnabled ? (
+        <main className="p-4 lg:p-6">
+          <AgendaEmptyState domain={domain} />
+        </main>
+      ) : (
       <main className="p-4 lg:p-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div
@@ -457,21 +541,65 @@ export function AgendaContent({
             onPickDay={(d) => navigate(d, "day")}
           />
         ) : (
-          <AgendaGrid
-            days={gridDays}
-            appointments={visibleAppointments}
-            blocks={blocks}
-            hourBoundsStart={hourBoundsStart}
-            hourBoundsEnd={hourBoundsEnd}
-            resourceAxis={resourceAxis}
-            resources={resourceList}
-            noShowLeadIds={noShowLeadIds}
-            isHoliday={isHolidayFor}
-            onCreateAt={openCreateAt}
-            onSelect={(a) => setActing(a)}
-            onMove={handleMove}
-            pendingSlot={pendingSlot}
-          />
+          <>
+            {/* Banner inline quando o dia atual nao tem nenhum agendamento
+                — evita que o grid em branco passe a sensacao de "tela quebrada".
+                So aparece em viewMode=day para nao poluir week. */}
+            {viewMode === "day" &&
+              visibleAppointments.length === 0 &&
+              !isHolidayFor(dateObj) && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-900">
+                  <div className="flex items-start gap-2">
+                    <svg
+                      className="mt-0.5 h-4 w-4 shrink-0 text-blue-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v3.75M12 7.5h.007v.008H12V7.5Zm0 4.5a9 9 0 1 1 0-18 9 9 0 0 1 0 18Z"
+                      />
+                    </svg>
+                    <div>
+                      <p className="font-medium text-blue-900">
+                        Nenhum agendamento para hoje
+                      </p>
+                      <p className="mt-0.5 text-xs text-blue-800/80">
+                        Aproveite o tempo livre para qualificar leads frios,
+                        responder mensagens pendentes ou agendar retornos.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openCreateAt()}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      + Novo agendamento
+                    </button>
+                  </div>
+                </div>
+              )}
+            <AgendaGrid
+              days={gridDays}
+              appointments={visibleAppointments}
+              blocks={blocks}
+              hourBoundsStart={hourBoundsStart}
+              hourBoundsEnd={hourBoundsEnd}
+              resourceAxis={resourceAxis}
+              resources={resourceList}
+              noShowLeadIds={noShowLeadIds}
+              isHoliday={isHolidayFor}
+              onCreateAt={openCreateAt}
+              onSelect={(a) => setActing(a)}
+              onMove={handleMove}
+              pendingSlot={pendingSlot}
+            />
+          </>
         )}
 
         {moveError && (
@@ -490,6 +618,7 @@ export function AgendaContent({
           </div>
         )}
       </main>
+      )}
 
       {creatingPrefill && (
         <AppointmentModal

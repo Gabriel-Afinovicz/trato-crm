@@ -28,17 +28,21 @@ const EMPTY_MINIDASH: MinidashCohort = {
 export function useKanbanMinidash(
   companyId: string | null,
   range: { start: string; end: string },
-  initial: MinidashCohort = EMPTY_MINIDASH
+  initial: MinidashCohort = EMPTY_MINIDASH,
+  sectorId?: string | null
 ) {
   const [cohort, setCohort] = useState<MinidashCohort>(initial);
   const [isFetching, setIsFetching] = useState(false);
   // Mantém a última range buscada para evitar refetch quando o objeto
   // recém-criado tem os mesmos valores que o anterior.
-  const lastRangeRef = useRef<string>(`${range.start}|${range.end}`);
+  const lastKeyRef = useRef<string>(
+    `${range.start}|${range.end}|${sectorId ?? ""}`
+  );
 
   const fetchNow = useCallback(
     async (
-      targetRange: { start: string; end: string } = range
+      targetRange: { start: string; end: string } = range,
+      targetSectorId: string | null | undefined = sectorId
     ): Promise<MinidashCohort | null> => {
       if (!companyId) return null;
       setIsFetching(true);
@@ -47,6 +51,7 @@ export function useKanbanMinidash(
         url.searchParams.set("companyId", companyId);
         url.searchParams.set("start", targetRange.start);
         url.searchParams.set("end", targetRange.end);
+        if (targetSectorId) url.searchParams.set("sector", targetSectorId);
         const res = await fetch(url.toString());
         if (!res.ok) return null;
         const data = (await res.json()) as { minidash: MinidashCohort };
@@ -58,19 +63,19 @@ export function useKanbanMinidash(
         setIsFetching(false);
       }
     },
-    [companyId, range]
+    [companyId, range, sectorId]
   );
 
   useEffect(() => {
-    const key = `${range.start}|${range.end}`;
-    if (key === lastRangeRef.current && cohort !== EMPTY_MINIDASH) {
-      // Mesma janela já carregada — não busca de novo.
+    const key = `${range.start}|${range.end}|${sectorId ?? ""}`;
+    if (key === lastKeyRef.current && cohort !== EMPTY_MINIDASH) {
+      // Mesma janela/filtro ja carregada — nao busca de novo.
       return;
     }
-    lastRangeRef.current = key;
-    void fetchNow(range);
+    lastKeyRef.current = key;
+    void fetchNow(range, sectorId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.start, range.end, companyId]);
+  }, [range.start, range.end, companyId, sectorId]);
 
   const refetch = useCallback(() => {
     void fetchNow();

@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { toast } from "sonner";
+import { confirm } from "@/components/ui/confirm";
 import type { WhatsAppInstance } from "@/lib/types/database";
 
 interface StatusResponse {
@@ -56,6 +58,18 @@ export function WhatsAppInstanceManager() {
   // montagem do componente. Evita que cada poll do status (a cada 3s durante
   // connecting) reaplique o contador e dê a sensação de "trava" no UI.
   const cooldownSyncedFromServerRef = useRef(false);
+
+  // Esc fecha o modal de QR — padrao consistente com outros modais do app
+  // (appointment-modal, appointment-actions, etc.). Listener ativo so quando
+  // o modal esta aberto para evitar capturar Esc em outros contextos.
+  useEffect(() => {
+    if (!showQrModal) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setShowQrModal(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showQrModal]);
 
   // Liga (ou substitui) o tick visual do cooldown a partir do timestamp
   // considerado como "ultima sync". Caso unificado para: sync local recem
@@ -123,10 +137,16 @@ export function WhatsAppInstanceManager() {
     setError(null);
     startSyncTick();
     try {
+      // `keepalive: true` permite que a requisicao continue mesmo se o
+      // operador navegar para outra aba do CRM antes do sync terminar
+      // (ex: clica em Conectar e vai direto para a aba Conversas — o
+      // server precisa processar o sync inteiro do mesmo jeito, e a UI
+      // de Conversas mostra um banner "Sincronizando" enquanto isso).
       const res = await fetch("/api/whatsapp/instance/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain }),
+        keepalive: true,
       });
       const payload = (await res.json().catch(() => ({}))) as {
         synced?: number;
@@ -165,9 +185,15 @@ export function WhatsAppInstanceManager() {
         );
         return;
       }
-      setError(payload.error ?? `Falha ao sincronizar (HTTP ${res.status}).`);
+      setError(
+        payload.error ??
+          "Nao foi possivel sincronizar as conversas agora. Tente novamente em alguns instantes."
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro de rede ao sincronizar.");
+      console.error("[whatsapp/manager] sync network error", err);
+      setError(
+        "Nao foi possivel sincronizar as conversas agora. Verifique sua conexao e tente novamente."
+      );
     } finally {
       stopSyncTick();
       setSyncing(false);
@@ -249,59 +275,101 @@ export function WhatsAppInstanceManager() {
     setError(null);
     setBusy(true);
     setShowQrModal(true);
-    const res = await fetch("/api/whatsapp/instance/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain }),
-    });
-    setBusy(false);
-    const rawText = await res.text();
-    let payload: ConnectResponse = {};
     try {
-      payload = rawText ? (JSON.parse(rawText) as ConnectResponse) : {};
-    } catch {
-      payload = {};
-    }
-    if (!res.ok) {
-      const fallback = `Erro ao conectar WhatsApp. (HTTP ${res.status}${
-        rawText && !payload.error
-          ? `: ${rawText.slice(0, 160).replace(/\s+/g, " ").trim()}`
-          : ""
-      })`;
-      setError(payload.error ?? fallback);
+      const res = await fetch("/api/whatsapp/instance/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const rawText = await res.text();
+      let payload: ConnectResponse = {};
+      try {
+        payload = rawText ? (JSON.parse(rawText) as ConnectResponse) : {};
+      } catch {
+        payload = {};
+      }
+      if (!res.ok) {
+        if (!payload.error) {
+          console.error("[whatsapp/manager] connect failed", {
+            status: res.status,
+            rawText: rawText.slice(0, 200),
+          });
+        }
+        setError(
+          payload.error ??
+            "Nao foi possivel iniciar a conexao com o WhatsApp agora. Tente novamente em alguns instantes."
+        );
+        setShowQrModal(false);
+        return;
+      }
+      setQr(payload.qrBase64 ?? null);
+      setPairingCode(payload.pairingCode ?? null);
+      startPolling();
+      refresh();
+    } catch (err) {
+      // Erros de rede entre o navegador e o nosso servidor (offline,
+      // servidor reiniciando, etc) — mensagem neutra; detalhes ficam
+      // apenas no console.
+      console.error("[whatsapp/manager] connect network error", err);
+      setError(
+        "Nao foi possivel iniciar a conexao com o WhatsApp agora. Verifique sua conexao e tente novamente."
+      );
       setShowQrModal(false);
-      return;
+    } finally {
+      setBusy(false);
     }
-    setQr(payload.qrBase64 ?? null);
-    setPairingCode(payload.pairingCode ?? null);
-    startPolling();
-    refresh();
   }
 
   async function handleDisconnect() {
     if (!domain) return;
-    if (!confirm("Desconectar o WhatsApp da clinica?")) return;
+    const ok = await confirm({
+      title: "Desconectar o WhatsApp?",
+      description:
+        "O numero ficara offline ate ser reconectado via QR Code. Conversas ja sincronizadas permanecem.",
+      warningList: [
+        "Novas mensagens nao serao recebidas enquanto desconectado",
+        "Voce precisara escanear o QR Code novamente para reconectar",
+      ],
+      confirmLabel: "Desconectar",
+      variant: "danger",
+    });
+    if (!ok) return;
     setError(null);
     setBusy(true);
-    const res = await fetch("/api/whatsapp/instance/disconnect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domain }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(payload.error ?? "Erro ao desconectar.");
-      return;
+    try {
+      const res = await fetch("/api/whatsapp/instance/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setError(
+          payload.error ??
+            "Nao foi possivel desconectar agora. Tente novamente em alguns instantes."
+        );
+        return;
+      }
+      setQr(null);
+      setPairingCode(null);
+      setShowQrModal(false);
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      refresh();
+      toast.success("WhatsApp desconectado");
+    } catch (err) {
+      console.error("[whatsapp/manager] disconnect network error", err);
+      const msg =
+        "Nao foi possivel desconectar agora. Verifique sua conexao e tente novamente.";
+      setError(msg);
+      toast.error("Falha ao desconectar", { description: msg });
+    } finally {
+      setBusy(false);
     }
-    setQr(null);
-    setPairingCode(null);
-    setShowQrModal(false);
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    refresh();
   }
 
   return (
@@ -310,11 +378,11 @@ export function WhatsAppInstanceManager() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-gray-900">
-              WhatsApp da clinica
+              WhatsApp da organizacao
             </h2>
             <p className="mt-1 text-xs text-gray-500">
-              Conecte o numero WhatsApp da clinica via QR code para enviar e
-              receber mensagens diretamente do CRM.
+              Conecte o numero WhatsApp da organizacao via QR code para enviar
+              e receber mensagens diretamente do CRM.
             </p>
           </div>
           {instance ? (
@@ -404,7 +472,7 @@ export function WhatsAppInstanceManager() {
           <div className="mt-4 space-y-3">
             <p className="text-xs text-gray-600">
               Ao conectar, abriremos um QR code que voce escaneia pelo
-              WhatsApp do celular da clinica em &quot;Aparelhos
+              WhatsApp do celular da organizacao em &quot;Aparelhos
               conectados&quot;.
             </p>
             <button
@@ -445,7 +513,7 @@ export function WhatsAppInstanceManager() {
               </button>
             </div>
             <p className="mt-1 text-xs text-gray-500">
-              Abra o WhatsApp no celular da clinica em
+              Abra o WhatsApp no celular da organizacao em
               <strong> Configuracoes &gt; Aparelhos conectados </strong>e
               escaneie o QR abaixo.
             </p>

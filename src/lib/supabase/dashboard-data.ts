@@ -1,5 +1,9 @@
 import { cache } from "react";
 import { createClient } from "./server";
+import {
+  startOfMonthInTz,
+  startOfNextMonthInTz,
+} from "@/lib/utils/timezone";
 import type {
   ActivityDetailed,
   AnaliticoKpis,
@@ -9,7 +13,6 @@ import type {
   Lead,
   LeadDetailed,
   PipelineStage,
-  Specialty,
   Tag,
   User,
 } from "@/lib/types/database";
@@ -43,15 +46,23 @@ export const getDashboardData = cache(async (companyId: string) => {
 
 /**
  * Intervalo `[start, end)` cobrindo o mês corrente — do dia 1 às 00:00
- * até o dia 1 do mês seguinte às 00:00. Calculado no fuso local do
- * servidor; em produção (Vercel/SP) coincide com o calendário do
- * cliente. Para esclarecer fuso futuramente, mover para um campo
- * `companies.timezone`.
+ * até o dia 1 do mês seguinte às 00:00.
+ *
+ * Quando `tz` é informado, o calculo respeita o fuso da organizacao
+ * (companies.timezone) — assim o mes do relatorio nao "vira" no UTC
+ * do servidor antes da meia-noite local. Sem `tz`, usa o fuso local
+ * do processo Node (compatibilidade com chamadas antigas).
  */
-export function defaultMonthRange(now: Date = new Date()): {
-  start: Date;
-  end: Date;
-} {
+export function defaultMonthRange(
+  now: Date = new Date(),
+  tz?: string | null
+): { start: Date; end: Date } {
+  if (tz) {
+    return {
+      start: startOfMonthInTz(now, tz),
+      end: startOfNextMonthInTz(now, tz),
+    };
+  }
   const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
   return { start, end };
@@ -76,13 +87,15 @@ const EMPTY_KPIS: AnaliticoKpis = {
  */
 export async function getAnaliticoKpis(
   companyId: string,
-  range: { start: Date; end: Date }
+  range: { start: Date; end: Date },
+  sectorId?: string | null
 ): Promise<AnaliticoKpis> {
   const supabase = await createClient();
   const { data } = await supabase.rpc("get_analitico_kpis", {
     p_company_id: companyId,
     p_start: range.start.toISOString(),
     p_end: range.end.toISOString(),
+    p_sector_id: sectorId ?? null,
   });
   return (data as unknown as AnaliticoKpis) ?? EMPTY_KPIS;
 }
@@ -147,9 +160,9 @@ export type KanbanLead = Pick<
   | "name"
   | "status"
   | "stage_id"
-  | "specialty_id"
-  | "specialty_name"
-  | "specialty_color"
+  | "sector_id"
+  | "sector_name"
+  | "sector_color"
   | "phone"
   | "email"
   | "assigned_to"
@@ -188,7 +201,7 @@ export const getKanbanData = async (
   let leadsQuery = supabase
     .from("vw_leads_detailed")
     .select(
-      "id,name,status,stage_id,specialty_id,specialty_name,specialty_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at"
+      "id,name,status,stage_id,sector_id,sector_name,sector_color,phone,email,assigned_to,assigned_to_name,assigned_is_dentist,source_name,kanban_position,photo_url,birthdate,allergies,created_at,updated_at"
     )
     .eq("company_id", companyId)
     .order("kanban_position", { ascending: true })
@@ -204,7 +217,6 @@ export const getKanbanData = async (
     leadsRes,
     operatorsRes,
     stagesRes,
-    specialtiesRes,
     lastActivityRes,
     userStageOrderRes,
   ] = await Promise.all([
@@ -222,12 +234,6 @@ export const getKanbanData = async (
       .eq("company_id", companyId)
       .eq("is_active", true)
       .order("position", { ascending: true }),
-    supabase
-      .from("specialties")
-      .select("*")
-      .eq("company_id", companyId)
-      .eq("is_active", true)
-      .order("name", { ascending: true }),
     supabase
       .from("activities")
       .select("lead_id, created_at")
@@ -280,7 +286,6 @@ export const getKanbanData = async (
     leads: (leadsRes.data as unknown as KanbanLead[]) ?? [],
     operators: (operatorsRes.data as unknown as KanbanOperator[]) ?? [],
     stages,
-    specialties: (specialtiesRes.data as unknown as Specialty[]) ?? [],
     lastActivityByLead: Object.fromEntries(lastActivityMap) as Record<
       string,
       string

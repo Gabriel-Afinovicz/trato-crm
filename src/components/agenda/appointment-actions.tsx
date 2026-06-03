@@ -68,26 +68,33 @@ function reminderDateParts(iso: string): ReminderDateParts {
 }
 
 interface TemplateContext {
-  paciente: string;
-  dentista: string;
+  lead: string;
+  profissional: string;
   /** Data + hora combinados (compatibilidade com templates antigos). */
   data: string;
   hora: string;
   dia_semana: string;
   data_calendario: string;
-  clinica: string;
+  organizacao: string;
   link: string;
 }
 
+// Substitui placeholders no corpo do template. Os termos genericos
+// ({{lead}}, {{profissional}}, {{organizacao}}) sao os "oficiais"; os
+// antigos ({{paciente}}, {{dentista}}, {{clinica}}) continuam aceitos
+// para nao quebrar templates ja salvos em produccao.
 function applyTemplate(body: string, ctx: TemplateContext) {
   return body
-    .replaceAll("{{paciente}}", ctx.paciente)
-    .replaceAll("{{dentista}}", ctx.dentista)
+    .replaceAll("{{lead}}", ctx.lead)
+    .replaceAll("{{paciente}}", ctx.lead)
+    .replaceAll("{{profissional}}", ctx.profissional)
+    .replaceAll("{{dentista}}", ctx.profissional)
     .replaceAll("{{data}}", ctx.data)
     .replaceAll("{{hora}}", ctx.hora)
     .replaceAll("{{dia_semana}}", ctx.dia_semana)
     .replaceAll("{{data_calendario}}", ctx.data_calendario)
-    .replaceAll("{{clinica}}", ctx.clinica)
+    .replaceAll("{{organizacao}}", ctx.organizacao)
+    .replaceAll("{{clinica}}", ctx.organizacao)
     .replaceAll("{{link}}", ctx.link);
 }
 
@@ -95,7 +102,7 @@ function applyTemplate(body: string, ctx: TemplateContext) {
  * Determina a base URL para os links de confirmacao. Em producao, a env
  * NEXT_PUBLIC_PUBLIC_APP_URL aponta para o dominio publico (HTTPS); em dev
  * caimos no origin do navegador, que pode ser http://localhost — neste caso
- * a URL nao vira tocavel no WhatsApp do paciente.
+ * a URL nao vira tocavel no WhatsApp do lead.
  */
 function resolveAppBaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_PUBLIC_APP_URL?.trim();
@@ -240,22 +247,22 @@ export function AppointmentActions({
 
     const parts = reminderDateParts(appointment.starts_at);
     const ctx: TemplateContext = {
-      paciente: appointment.lead_name ?? "paciente",
-      dentista: appointment.dentist_name ?? "nosso dentista",
+      lead: appointment.lead_name ?? "lead",
+      profissional: appointment.dentist_name ?? "o profissional responsável",
       data: parts.combinado,
       hora: parts.hora,
       dia_semana: parts.diaSemana,
       data_calendario: parts.dataCalendario,
-      clinica: domain,
+      organizacao: domain,
       link,
     };
     const fallback = [
-      `Olá, ${ctx.paciente}! Tudo bem?`,
+      `Olá, ${ctx.lead}! Tudo bem?`,
       "",
-      "Passando para confirmar sua consulta:",
+      "Passando para confirmar seu atendimento:",
       `📅 *Data:* ${ctx.dia_semana}, ${ctx.data_calendario}`,
       `🕒 *Horário:* ${ctx.hora}`,
-      `👨‍⚕️ *Profissional:* ${ctx.dentista}`,
+      `👤 *Profissional:* ${ctx.profissional}`,
       "",
       "Para confirmar ou reagendar, acesse o link abaixo:",
       ctx.link,
@@ -273,7 +280,7 @@ export function AppointmentActions({
 
     if (result.kind === "sent") {
       setInfo({
-        message: "Mensagem enviada pelo WhatsApp da clinica.",
+        message: "Mensagem enviada pelo WhatsApp da organizacao.",
         chatId: result.chatId,
       });
       return;
@@ -309,14 +316,14 @@ export function AppointmentActions({
               Consulta
             </p>
             <h3 className="text-base font-semibold text-gray-900">
-              {appointment.lead_name ?? "Paciente"}
+              {appointment.lead_name ?? "Lead"}
             </h3>
             <p className="mt-0.5 text-xs text-gray-600">
               {formatDate(appointment.starts_at)}
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
               {appointment.dentist_name && (
-                <span>Dr(a). {appointment.dentist_name}</span>
+                <span>{appointment.dentist_name}</span>
               )}
               {appointment.room_name && <span>· {appointment.room_name}</span>}
               {appointment.procedure_name && (
@@ -392,9 +399,9 @@ export function AppointmentActions({
           {linkBaseIsLocal && (
             <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
               O link do lembrete usa <code>localhost</code> e provavelmente não
-              ficará tocável no celular do paciente. Defina{" "}
+              ficará tocável no celular do lead. Defina{" "}
               <code>NEXT_PUBLIC_PUBLIC_APP_URL</code> com a URL pública (HTTPS)
-              da clínica para que o link vire clicável no WhatsApp.
+              da organização para que o link vire clicável no WhatsApp.
             </p>
           )}
           <div className="flex flex-wrap gap-1.5">
@@ -461,7 +468,7 @@ export function AppointmentActions({
             href={`/${domain}/leads/${appointment.lead_id}`}
             className="rounded-lg border border-gray-200 px-3 py-2 text-center text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
-            Ver paciente
+            Ver lead
           </Link>
         </div>
       </div>

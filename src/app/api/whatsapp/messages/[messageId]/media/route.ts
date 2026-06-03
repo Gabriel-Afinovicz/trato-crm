@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { evolution, EvolutionConfigError } from "@/lib/evolution/client";
+import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 
 interface MessageRow {
   id: string;
@@ -60,10 +61,11 @@ export async function GET(
     const isDownload = downloadParam === "1" || downloadParam === "true";
 
     if (!evolution.isConfigured()) {
-      return NextResponse.json(
-        { error: "Evolution API nao configurada no servidor." },
-        { status: 503 }
+      const f = friendlyEvolutionError(
+        { name: "EvolutionConfigError" },
+        "media_download"
       );
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const supabase = await createClient();
@@ -109,7 +111,7 @@ export async function GET(
     }
     if (!messageRow.evolution_message_id) {
       return NextResponse.json(
-        { error: "Mensagem sem identificador Evolution." },
+        { error: "Arquivo indisponivel para download." },
         { status: 422 }
       );
     }
@@ -165,24 +167,19 @@ export async function GET(
         { convertToMp4: messageRow.media_type === "video" }
       );
     } catch (err) {
-      if (err instanceof EvolutionConfigError) {
-        return NextResponse.json({ error: err.message }, { status: 503 });
-      }
-      console.error("[messages/media] evolution failed:", {
+      console.error("[whatsapp/media] upstream error", {
         messageId: id,
         evoId: messageRow.evolution_message_id,
-        error: err instanceof Error ? err.message : err,
+        err,
       });
-      return NextResponse.json(
-        { error: "Falha ao buscar midia." },
-        { status: 502 }
-      );
+      const f = friendlyEvolutionError(err, "media_download");
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const rawBase64 = evoPayload.base64 ?? "";
     if (!rawBase64) {
       return NextResponse.json(
-        { error: "Midia indisponivel." },
+        { error: "Arquivo indisponivel ou removido pelo remetente." },
         { status: 404 }
       );
     }
@@ -198,7 +195,7 @@ export async function GET(
       buffer = Buffer.from(base64, "base64");
     } catch {
       return NextResponse.json(
-        { error: "Midia invalida." },
+        { error: "Nao foi possivel processar o arquivo." },
         { status: 502 }
       );
     }
@@ -235,9 +232,9 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("[messages/media] uncaught:", err);
+    console.error("[whatsapp/media] uncaught", err);
     return NextResponse.json(
-      { error: "Erro interno." },
+      { error: "Nao foi possivel carregar o arquivo agora. Tente novamente em alguns instantes." },
       { status: 500 }
     );
   }

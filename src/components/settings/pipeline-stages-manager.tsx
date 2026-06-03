@@ -20,6 +20,11 @@ import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { PIPELINE_STAGE_COLORS } from "@/lib/pipeline-stage-colors";
 import {
+  PIPELINE_TEMPLATES,
+  seedPipelineTemplate,
+} from "@/lib/pipeline-templates";
+import { TemplateGrid } from "@/components/dashboard/pipeline-template-empty-state";
+import {
   STAGE_CATEGORIES,
   STAGE_CATEGORY_LABEL,
   type PipelineStage,
@@ -186,6 +191,33 @@ export function PipelineStagesManager() {
   const [editing, setEditing] = useState<PipelineStage | null>(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
+
+  const [seeding, setSeeding] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    PIPELINE_TEMPLATES[0]?.id ?? ""
+  );
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+
+  async function handleSeedTemplate(templateId: string) {
+    if (!companyId) return;
+    setError(null);
+    setSeeding(true);
+    const supabase = createClient();
+    const result = await seedPipelineTemplate(supabase, companyId, templateId);
+    setSeeding(false);
+    if (result.error) {
+      setError(`Erro ao carregar template: ${result.error}`);
+      return;
+    }
+    if (result.created === 0) {
+      setError(
+        "Todas as etapas desse template ja existem. Nenhuma alteracao realizada."
+      );
+      return;
+    }
+    setTemplatePickerOpen(false);
+    await fetchAll();
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -415,10 +447,124 @@ export function PipelineStagesManager() {
         </div>
       )}
 
+      {stages.length === 0 && !loading && (
+        <div className="flex flex-col items-center gap-5 rounded-xl border border-dashed border-blue-200 bg-blue-50/60 px-6 py-8 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-sm">
+            <svg
+              className="h-7 w-7 text-blue-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.8}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">
+              Pipeline ainda sem etapas
+            </h3>
+            <p className="mt-1 max-w-md text-sm text-gray-600">
+              Escolha um template pronto para o seu segmento ou crie etapas do
+              zero no formulario abaixo.
+            </p>
+          </div>
+          <TemplateGrid
+            selectedId={selectedTemplateId}
+            onSelect={setSelectedTemplateId}
+            disabled={seeding}
+          />
+          <button
+            type="button"
+            onClick={() => void handleSeedTemplate(selectedTemplateId)}
+            disabled={seeding || !selectedTemplateId}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4.5v15m7.5-7.5h-15"
+              />
+            </svg>
+            {seeding ? "Carregando..." : "Usar este template"}
+          </button>
+        </div>
+      )}
+
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-gray-700">
-          Novo estágio
-        </h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-gray-700">
+            Novo estágio
+          </h3>
+          {stages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTemplatePickerOpen((v) => !v)}
+              disabled={seeding}
+              title="Carrega as etapas faltantes de um template salvo."
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            >
+              {seeding ? "Carregando..." : "Carregar template"}
+              <svg
+                className={`h-3 w-3 transition-transform ${
+                  templatePickerOpen ? "rotate-180" : ""
+                }`}
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m19.5 8.25-7.5 7.5-7.5-7.5"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+        {templatePickerOpen && stages.length > 0 && (
+          <div className="mb-4 space-y-3 rounded-lg border border-blue-200 bg-blue-50/40 p-4">
+            <p className="text-xs text-gray-700">
+              Escolha um template. Apenas as etapas que ainda nao existem (por
+              nome) serao adicionadas.
+            </p>
+            <TemplateGrid
+              selectedId={selectedTemplateId}
+              onSelect={setSelectedTemplateId}
+              disabled={seeding}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTemplatePickerOpen(false)}
+                disabled={seeding}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSeedTemplate(selectedTemplateId)}
+                disabled={seeding || !selectedTemplateId}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {seeding ? "Carregando..." : "Usar este template"}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <div className="flex-1">
             <input

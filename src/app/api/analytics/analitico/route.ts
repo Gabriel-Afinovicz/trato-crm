@@ -59,7 +59,11 @@ export async function GET(req: NextRequest) {
     range = defaultMonthRange();
   }
 
-  const kpis = await getAnaliticoKpis(companyId, range);
+  const sectorParam = searchParams.get("sector");
+  const sectorId =
+    sectorParam && sectorParam !== "none" ? sectorParam : null;
+
+  const kpis = await getAnaliticoKpis(companyId, range, sectorId);
   return NextResponse.json({
     kpis,
     range: { start: range.start.toISOString(), end: range.end.toISOString() },

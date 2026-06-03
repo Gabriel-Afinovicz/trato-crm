@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { Badge } from "@/components/ui/badge";
+import { confirm } from "@/components/ui/confirm";
 import type { Tag } from "@/lib/types/database";
 
 const PRESET_COLORS = [
@@ -85,7 +86,14 @@ export function TagsManager() {
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`Excluir a tag "${name}"? Isso removerá a associação com todos os leads.`)) return;
+    const ok = await confirm({
+      title: `Excluir a tag "${name}"?`,
+      description:
+        "A associacao com todos os leads sera removida. Esta acao nao pode ser desfeita.",
+      confirmLabel: "Excluir tag",
+      variant: "danger",
+    });
+    if (!ok) return;
     setError(null);
     setOperatingId(id);
     const supabase = createClient();

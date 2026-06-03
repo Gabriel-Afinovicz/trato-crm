@@ -1,14 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { useCompanyTimezone } from "@/hooks/use-company-timezone";
 import { useLeadFilters } from "@/hooks/use-lead-filters";
+import { formatDateInTz } from "@/lib/utils/timezone";
 import type {
   LeadDetailed,
   MinidashCohort,
   PipelineStage,
+  Sector,
   StageCategory,
   Tag,
+  User,
 } from "@/lib/types/database";
 import {
   STAGE_CATEGORY_LABEL,
@@ -27,6 +32,8 @@ import {
 } from "./date-range-picker";
 import { defaultMonthRangeLocal } from "@/lib/utils/date-range";
 import { KanbanLeadEditModal } from "@/components/dashboard/kanban-lead-edit-modal";
+import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
+import { confirm } from "@/components/ui/confirm";
 import { createClient } from "@/lib/supabase/client";
 
 interface LeadTableProps {
@@ -59,6 +66,7 @@ const CATEGORY_ACCENT: Record<StageCategory, string> = {
  */
 export function LeadTable({ domain }: LeadTableProps) {
   const { companyId, loading: companyLoading } = useCurrentCompany();
+  const companyTz = useCompanyTimezone();
   const filters = useLeadFilters();
 
   const [items, setItems] = useState<LeadDetailed[]>([]);
@@ -75,12 +83,20 @@ export function LeadTable({ domain }: LeadTableProps) {
     sem_categoria: 0,
   });
   const [stages, setStages] = useState<PipelineStage[]>([]);
+  const [sectors, setSectors] = useState<Sector[]>([]);
   const [tagsByLead, setTagsByLead] = useState<Record<string, Tag[]>>({});
+  const [members, setMembers] = useState<User[]>([]);
   const [isFetching, setIsFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRangePicker, setShowRangePicker] = useState(false);
   const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState(filters.state.q);
+
+  // Selecao em lote (checkboxes na lista). Set por id evita custo
+  // O(n) para verificar se uma linha esta selecionada. A barra de
+  // acoes aparece quando ha pelo menos um id selecionado.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   const monthDefault = useMemo(() => defaultMonthRangeLocal(), []);
   const effectiveRange = useMemo(() => {
@@ -116,6 +132,40 @@ export function LeadTable({ domain }: LeadTableProps) {
       });
   }, [companyId]);
 
+  // Setores para popular o filtro de Setor.
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    fetch(`/api/sectors?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: Sector[] } | null) => {
+        if (!cancelled && data?.items) setSectors(data.items);
+      })
+      .catch(() => { });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  // Membros (operadores/admins) para o dropdown de reatribuicao em lote.
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    const supabase = createClient();
+    void supabase
+      .from("users")
+      .select("*")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .order("name")
+      .then(({ data }) => {
+        if (!cancelled) setMembers((data as unknown as User[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
   const stageById = useMemo(() => {
     const map = new Map<string, PipelineStage>();
     for (const s of stages) map.set(s.id, s);
@@ -142,8 +192,8 @@ export function LeadTable({ domain }: LeadTableProps) {
       if (filters.state.assignee) {
         url.searchParams.set("assignee", filters.state.assignee);
       }
-      if (filters.state.specialty) {
-        url.searchParams.set("specialty", filters.state.specialty);
+      if (filters.state.sector) {
+        url.searchParams.set("sector", filters.state.sector);
       }
       if (filters.state.source) {
         url.searchParams.set("sourceId", filters.state.source);
@@ -158,13 +208,16 @@ export function LeadTable({ domain }: LeadTableProps) {
       // estado instrutivo (mas a minidash continua sendo carregada).
       const wantsList = !showInstructions;
 
+      const miniUrl = new URL("/api/leads/minidash", window.location.origin);
+      miniUrl.searchParams.set("companyId", companyId);
+      miniUrl.searchParams.set("start", effectiveRange.start);
+      miniUrl.searchParams.set("end", effectiveRange.end);
+      if (filters.state.sector) {
+        miniUrl.searchParams.set("sector", filters.state.sector);
+      }
       const [listRes, miniRes] = await Promise.all([
         wantsList ? fetch(url.toString()) : Promise.resolve(null),
-        fetch(
-          `/api/leads/minidash?companyId=${companyId}&start=${encodeURIComponent(
-            effectiveRange.start
-          )}&end=${encodeURIComponent(effectiveRange.end)}`
-        ),
+        fetch(miniUrl.toString()),
       ]);
 
       if (listRes) {
@@ -230,7 +283,7 @@ export function LeadTable({ domain }: LeadTableProps) {
     filters.state.categories,
     filters.state.q,
     filters.state.assignee,
-    filters.state.specialty,
+    filters.state.sector,
     filters.state.source,
     filters.state.tags,
     filters.state.page,
@@ -248,8 +301,94 @@ export function LeadTable({ domain }: LeadTableProps) {
     void fetchPage();
   }, [companyLoading, companyId, fetchPage]);
 
+  // Limpa a selecao quando a pagina muda (qualquer filtro/paginacao).
+  // Os ids selecionados poderiam ter saido da pagina visivel e gerar
+  // confusao "marquei X mas vejo Y selecionados".
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [items]);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const page = filters.state.page;
+
+  // Ids visiveis na pagina atual — usado pelo checkbox "selecionar todos
+  // da pagina" no header da tabela.
+  const visibleIds = useMemo(() => items.map((l) => l.id), [items]);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected =
+    !allVisibleSelected && visibleIds.some((id) => selectedIds.has(id));
+
+  function toggleId(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function runBulk(
+    payload: { assigned_to?: string | null; sector_id?: string | null },
+    confirmDescription: string
+  ) {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const ok = await confirm({
+      title: `Aplicar a ${ids.length} lead${ids.length === 1 ? "" : "s"}?`,
+      description: confirmDescription,
+      confirmLabel: "Aplicar",
+    });
+    if (!ok) return;
+    setBulkRunning(true);
+    try {
+      const res = await fetch("/api/leads/bulk-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ids, ...payload }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        updated?: number;
+        requested?: number;
+      };
+      if (!res.ok) {
+        toast.error("Falha na atualizacao em lote", {
+          description: data.error ?? `HTTP ${res.status}`,
+        });
+        return;
+      }
+      const updated = data.updated ?? 0;
+      const requested = data.requested ?? ids.length;
+      if (updated === 0) {
+        toast.warning("Nenhum lead foi atualizado", {
+          description:
+            "Verifique se voce tem permissao para alterar esses leads.",
+        });
+      } else if (updated < requested) {
+        toast.success(`${updated} de ${requested} leads atualizados`, {
+          description: `${requested - updated} sem permissao ou nao encontrado(s).`,
+        });
+      } else {
+        toast.success(`${updated} lead${updated === 1 ? "" : "s"} atualizado${updated === 1 ? "" : "s"}`);
+      }
+      setSelectedIds(new Set());
+      await fetchPage();
+    } finally {
+      setBulkRunning(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -304,11 +443,10 @@ export function LeadTable({ domain }: LeadTableProps) {
                 key={cat}
                 type="button"
                 onClick={() => filters.toggleCategory(cat)}
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
-                  active
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${active
                     ? CATEGORY_ACCENT[cat]
                     : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-                }`}
+                  }`}
               >
                 {STAGE_CATEGORY_LABEL[cat]}
                 <span className="text-[10px] opacity-70">
@@ -319,12 +457,31 @@ export function LeadTable({ domain }: LeadTableProps) {
           })}
         </div>
 
-        <div className="w-full sm:w-72">
-          <Input
-            placeholder="Buscar por nome, telefone, e-mail…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          {sectors.length > 0 && (
+            <select
+              value={filters.state.sector ?? ""}
+              onChange={(e) =>
+                filters.setFilters({ sector: e.target.value || null })
+              }
+              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Todos setores</option>
+              <option value="none">Sem setor</option>
+              {sectors.map((sec) => (
+                <option key={sec.id} value={sec.id}>
+                  {sec.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="w-full sm:w-72">
+            <Input
+              placeholder="Buscar por nome, telefone, e-mail…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
@@ -334,27 +491,92 @@ export function LeadTable({ domain }: LeadTableProps) {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          count={selectedIds.size}
+          members={members}
+          sectors={sectors}
+          disabled={bulkRunning}
+          onClear={() => setSelectedIds(new Set())}
+          onAssign={(userId) =>
+            runBulk(
+              { assigned_to: userId },
+              userId
+                ? `Os leads selecionados serao atribuidos ao membro escolhido.`
+                : `Os leads selecionados ficarao sem responsavel.`
+            )
+          }
+          onSetSector={(sectorId) =>
+            runBulk(
+              { sector_id: sectorId },
+              sectorId
+                ? `Os leads selecionados serao movidos para o setor escolhido.`
+                : `Os leads selecionados ficarao sem setor.`
+            )
+          }
+        />
+      )}
+
       {showInstructions ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white px-6 py-16 text-center">
-          <svg
-            className="h-10 w-10 text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 8.25V6Zm0 9.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25Zm9.75-9.75A2.25 2.25 0 0 1 15.75 3.75H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-            />
-          </svg>
-          <p className="mt-3 text-sm font-medium text-gray-700">
-            Selecione uma ou mais categorias acima
+        // Empty state coerente com o padrao dos outros (Kanban vazio,
+        // Agenda sem horarios, Analitico zerado): card azul claro com
+        // borda tracejada e CTAs concretas no lugar de instrucao seca.
+        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-200 bg-blue-50/60 px-6 py-12 text-center shadow-sm">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-sm">
+            <svg
+              className="h-6 w-6 text-blue-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.8}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 8.25V6Zm0 9.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25Zm9.75-9.75A2.25 2.25 0 0 1 15.75 3.75H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6Zm0 9.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+              />
+            </svg>
+          </div>
+          <p className="mt-3 text-base font-semibold text-gray-900">
+            Comece selecionando categorias ou crie seu primeiro lead
           </p>
-          <p className="mt-1 text-xs text-gray-500">
-            ou digite uma busca para listar os leads do período.
+          <p className="mt-1 max-w-md text-sm text-gray-600">
+            Clique nas <span className="font-medium">categorias acima</span>{" "}
+            (Frio, Quente, Agendado…) para ver os leads do periodo, ou
+            cadastre um novo agora.
           </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <a
+              href={`/${domain}/leads/new`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+              Criar primeiro lead
+            </a>
+            <button
+              type="button"
+              onClick={() =>
+                filters.setFilters({
+                  categories: ["quente", "agendado", "fechado"],
+                })
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+            >
+              Ver leads ativos
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -368,8 +590,20 @@ export function LeadTable({ domain }: LeadTableProps) {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/50 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                      <th className="w-10 px-4 py-3">
+                        <input
+                          type="checkbox"
+                          aria-label="Selecionar todos os leads da pagina"
+                          checked={allVisibleSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someVisibleSelected;
+                          }}
+                          onChange={toggleAllVisible}
+                          className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </th>
                       <th className="px-6 py-3">Nome</th>
-                      <th className="px-6 py-3">Contato</th>
+                      <th className="px-6 py-3">Telefone</th>
                       <th className="px-6 py-3">Categoria</th>
                       <th className="px-6 py-3">Status</th>
                       <th className="px-6 py-3">Tags</th>
@@ -383,19 +617,40 @@ export function LeadTable({ domain }: LeadTableProps) {
                       const stage = stageById.get(lead.stage_id);
                       const cat = lead.stage_category ?? stage?.category;
                       const leadTags = tagsByLead[lead.id] ?? [];
+                      const selected = selectedIds.has(lead.id);
                       return (
                         <tr
                           key={lead.id}
                           onClick={() => setEditingLeadId(lead.id)}
-                          className="cursor-pointer transition-colors hover:bg-gray-50"
+                          className={`cursor-pointer transition-colors hover:bg-gray-50 ${selected ? "bg-blue-50/40" : ""}`}
                         >
+                          <td
+                            className="w-10 px-4 py-3"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Selecionar lead ${lead.name}`}
+                              checked={selected}
+                              onChange={() => toggleId(lead.id)}
+                              className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
                           <td className="whitespace-nowrap px-6 py-3 font-medium text-gray-900">
                             {lead.name}
                           </td>
                           <td className="px-6 py-3 text-gray-600">
                             <div className="flex flex-col">
                               {lead.phone && (
-                                <span className="text-sm">{lead.phone}</span>
+                                <span className="inline-flex items-center gap-2 text-sm">
+                                  {lead.phone}
+                                  <WhatsAppLeadLink
+                                    domain={domain}
+                                    phone={lead.phone}
+                                    leadId={lead.id}
+                                    stopRowPropagation
+                                  />
+                                </span>
                               )}
                               {lead.email && (
                                 <span className="text-xs text-gray-400">
@@ -433,9 +688,7 @@ export function LeadTable({ domain }: LeadTableProps) {
                             {lead.assigned_to_name || "—"}
                           </td>
                           <td className="whitespace-nowrap px-6 py-3 text-sm text-gray-500">
-                            {new Date(lead.created_at).toLocaleDateString(
-                              "pt-BR"
-                            )}
+                            {formatDateInTz(lead.created_at, companyTz)}
                           </td>
                         </tr>
                       );
@@ -527,11 +780,10 @@ function Pagination({
               type="button"
               disabled={isFetching}
               onClick={() => onChange(p)}
-              className={`min-w-[2rem] rounded border px-2 py-1 text-xs font-medium ${
-                p === page
+              className={`min-w-[2rem] rounded border px-2 py-1 text-xs font-medium ${p === page
                   ? "border-blue-600 bg-blue-600 text-white"
                   : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-              }`}
+                }`}
             >
               {p}
             </button>
@@ -546,6 +798,103 @@ function Pagination({
           Próxima
         </button>
       </div>
+    </div>
+  );
+}
+
+interface BulkActionsBarProps {
+  count: number;
+  members: User[];
+  sectors: Sector[];
+  disabled: boolean;
+  onClear: () => void;
+  onAssign: (userId: string | null) => void;
+  onSetSector: (sectorId: string | null) => void;
+}
+
+/**
+ * Barra fixa exibida no topo da lista de leads quando ha selecao.
+ * Apresenta a contagem + dois selects de acao (responsavel/setor) +
+ * botao "Limpar". Cada acao confirma antes via modal e exibe toast
+ * com resultado.
+ */
+function BulkActionsBar({
+  count,
+  members,
+  sectors,
+  disabled,
+  onClear,
+  onAssign,
+  onSetSector,
+}: BulkActionsBarProps) {
+  return (
+    <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/90 px-4 py-2 shadow-sm backdrop-blur">
+      <span className="text-sm font-medium text-blue-900">
+        {count} lead{count === 1 ? "" : "s"} selecionado{count === 1 ? "" : "s"}
+      </span>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs text-gray-600">
+          Responsavel:{" "}
+          <select
+            disabled={disabled}
+            defaultValue=""
+            onChange={(e) => {
+              const v = e.target.value;
+              e.target.value = "";
+              if (v === "__none__") onAssign(null);
+              else if (v) onAssign(v);
+            }}
+            className="ml-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
+          >
+            <option value="" disabled>
+              Atribuir a...
+            </option>
+            <option value="__none__">— Sem responsavel</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {sectors.length > 0 && (
+          <label className="text-xs text-gray-600">
+            Setor:{" "}
+            <select
+              disabled={disabled}
+              defaultValue=""
+              onChange={(e) => {
+                const v = e.target.value;
+                e.target.value = "";
+                if (v === "__none__") onSetSector(null);
+                else if (v) onSetSector(v);
+              }}
+              className="ml-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="" disabled>
+                Mover para...
+              </option>
+              <option value="__none__">— Sem setor</option>
+              {sectors.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onClear}
+        disabled={disabled}
+        className="ml-auto text-xs font-medium text-gray-600 hover:text-gray-900 disabled:opacity-50"
+      >
+        Limpar selecao
+      </button>
     </div>
   );
 }

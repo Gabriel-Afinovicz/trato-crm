@@ -11,8 +11,12 @@ import {
 } from "@/components/dashboard/lead-funnel";
 import { RecentLeads } from "@/components/dashboard/recent-leads";
 import { LeadKanbanBoard } from "@/components/dashboard/lead-kanban-board";
+import { PipelineTemplateEmptyState } from "@/components/dashboard/pipeline-template-empty-state";
+import { seedPipelineTemplate } from "@/lib/pipeline-templates";
+import { createClient } from "@/lib/supabase/client";
 import { KanbanErrorBoundary } from "@/components/dashboard/kanban-error-boundary";
 import { AnaliticoPanel } from "@/components/dashboard/analitico-panel";
+import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
 import { LeadsMinidash } from "@/components/leads/leads-minidash";
 import {
   DateRangePicker,
@@ -23,13 +27,13 @@ import {
   toLocalDateInput,
 } from "@/components/leads/date-range-picker";
 import { defaultMonthRangeLocal } from "@/lib/utils/date-range";
+import { isEditableTarget, hasCommandModifier } from "@/lib/utils/keyboard";
 import type {
   AnaliticoKpis,
   ClinicAnalyticsGoals,
   Lead,
   MinidashCohort,
   PipelineStage,
-  Specialty,
   StageCategory,
 } from "@/lib/types/database";
 import type {
@@ -52,7 +56,6 @@ interface DashboardContentProps {
   initialKanbanLeads: KanbanLead[];
   initialOperators: KanbanOperator[];
   initialStages: PipelineStage[];
-  initialSpecialties: Specialty[];
   initialLastActivity: Record<string, string>;
   initialKanbanMinidash: MinidashCohort;
   initialKanbanRange: { start: string; end: string };
@@ -123,7 +126,6 @@ export function DashboardContent({
   initialKanbanLeads,
   initialOperators,
   initialStages,
-  initialSpecialties,
   initialLastActivity,
   initialKanbanMinidash,
   initialKanbanRange,
@@ -166,10 +168,26 @@ export function DashboardContent({
     }
   };
 
+  // Atalhos 1/2/3 trocam de aba (Analitico/Kanban/Funil). So fora de campos
+  // de texto e sem modificadores, para nao colidir com atalhos do browser.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (isEditableTarget(e.target) || hasCommandModifier(e)) return;
+      if (e.key === "1") setTab("analitico");
+      else if (e.key === "2") setTab("kanban");
+      else if (e.key === "3") setTab("funil");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // setTab e estavel o suficiente; depende apenas de `tab` para o early-return.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   const [leads, setLeads] = useState<KanbanLead[]>(initialKanbanLeads);
   const [orderedStages, setOrderedStages] =
     useState<PipelineStage[]>(initialStages);
   const [showRangePicker, setShowRangePicker] = useState(false);
+  const [seedingPipeline, setSeedingPipeline] = useState(false);
 
   const funnelData = useMemo(
     () => computeStageFunnel(leads, orderedStages),
@@ -191,7 +209,32 @@ export function DashboardContent({
     cohort: minidashCohort,
     isFetching: minidashFetching,
     refetch: refetchMinidash,
-  } = useKanbanMinidash(companyId, effectiveRange, initialKanbanMinidash);
+  } = useKanbanMinidash(
+    companyId,
+    effectiveRange,
+    initialKanbanMinidash,
+    filters.state.sector
+  );
+
+  async function handleLoadPipelineTemplate(templateId: string) {
+    if (!companyId) return;
+    setSeedingPipeline(true);
+    const supabase = createClient();
+    const result = await seedPipelineTemplate(supabase, companyId, templateId);
+    if (result.error) {
+      setSeedingPipeline(false);
+      return;
+    }
+    const { data: refreshed } = await supabase
+      .from("pipeline_stages")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("position", { ascending: true });
+    if (refreshed) {
+      setOrderedStages(refreshed as unknown as PipelineStage[]);
+    }
+    setSeedingPipeline(false);
+  }
 
   return (
     // O dashboard inteiro é preso à altura do `<main>` do AppShell
@@ -201,6 +244,10 @@ export function DashboardContent({
     // global na página.
     <div className="flex h-full flex-col overflow-hidden">
       <main className="flex min-h-0 flex-1 flex-col p-4 lg:p-6">
+        {/* Checklist de primeiros passos. Some sozinho quando todos os
+            itens estao completos ou quando o usuario clica em "Esconder". */}
+        <OnboardingChecklist domain={domain} />
+
         {/* Cabeçalho denso: título + tabs + pills da mini-dash + período,
             tudo na mesma linha. Em telas estreitas, faz wrap. */}
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -303,12 +350,22 @@ export function DashboardContent({
               : "hidden"
           }
         >
-          <LeadFunnel data={funnelData} />
-          <RecentLeads
-            domain={domain}
-            initialLeads={initialRecentLeads}
-            stages={orderedStages}
-          />
+          {orderedStages.length === 0 ? (
+            <PipelineTemplateEmptyState
+              variant="funnel"
+              loading={seedingPipeline}
+              onLoadTemplate={handleLoadPipelineTemplate}
+            />
+          ) : (
+            <>
+              <LeadFunnel data={funnelData} />
+              <RecentLeads
+                domain={domain}
+                initialLeads={initialRecentLeads}
+                stages={orderedStages}
+              />
+            </>
+          )}
         </div>
         <div
           className={
@@ -323,7 +380,6 @@ export function DashboardContent({
               initialLeads={initialKanbanLeads}
               operators={initialOperators}
               stages={initialStages}
-              specialties={initialSpecialties}
               lastActivityByLead={initialLastActivity}
               initialRange={initialKanbanRange}
               onLeadsChange={setLeads}

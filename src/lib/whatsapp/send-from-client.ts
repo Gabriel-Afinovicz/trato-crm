@@ -76,13 +76,13 @@ export async function sendWhatsAppMessage(args: SendArgs): Promise<SendResult> {
         kind: "fallback",
         reason: "not_connected",
         message:
-          "WhatsApp da clinica nao esta conectado. Abrindo WhatsApp Web como alternativa.",
+          "WhatsApp da organizacao nao esta conectado. Abrindo WhatsApp Web como alternativa.",
       };
     }
     return {
       kind: "error",
       message:
-        "WhatsApp da clinica nao esta conectado e nao foi possivel abrir o WhatsApp Web (telefone ausente).",
+        "WhatsApp da organizacao nao esta conectado e nao foi possivel abrir o WhatsApp Web (telefone ausente).",
     };
   }
 
@@ -90,7 +90,7 @@ export async function sendWhatsAppMessage(args: SendArgs): Promise<SendResult> {
     return {
       kind: "error",
       message:
-        payload.error ?? "Paciente sem telefone valido cadastrado.",
+        payload.error ?? "Lead sem telefone valido cadastrado.",
     };
   }
 

@@ -62,7 +62,7 @@ export function NewClinicForm() {
 
     if (!res.ok) {
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(payload.error ?? "Erro ao criar clínica.");
+      setError(payload.error ?? "Erro ao criar organização.");
       setSaving(false);
       return;
     }
@@ -83,14 +83,14 @@ export function NewClinicForm() {
       <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">
-            Dados da clínica
+            Dados da organização
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">Campos obrigatórios</p>
         </div>
 
         <Input
-          label="Nome da clínica *"
-          placeholder="Ex: Clínica Sorriso"
+          label="Nome da organização *"
+          placeholder="Ex: Empresa Exemplo"
           value={name}
           onChange={(e) => setName(e.target.value)}
           autoFocus
@@ -99,7 +99,7 @@ export function NewClinicForm() {
         <div>
           <Input
             label="Domínio *"
-            placeholder="Ex: clinica-sorriso"
+            placeholder="Ex: empresa-exemplo"
             value={domain}
             onChange={(e) => setDomain(e.target.value.toLowerCase())}
           />
@@ -119,7 +119,7 @@ export function NewClinicForm() {
             Primeiro admin (opcional)
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            Preencha para já criar um admin. Se deixar em branco, a clínica
+            Preencha para já criar um admin. Se deixar em branco, a organização
             ficará sem usuários (você poderá cadastrar depois).
           </p>
         </div>
@@ -157,7 +157,7 @@ export function NewClinicForm() {
           Cancelar
         </button>
         <Button type="submit" loading={saving} size="lg">
-          Criar clínica
+          Criar organização
         </Button>
       </div>
     </form>

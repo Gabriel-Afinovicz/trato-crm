@@ -36,7 +36,10 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
 
   const supabase = await createClient();
 
-  const [leadRes, activities, sidebar] = await Promise.all([
+  // Proximo agendamento ATIVO (scheduled/confirmed) com starts_at >= now.
+  // Se existir, o header troca o botao "Agendar" por "Visualizar agendamento"
+  // que leva direto pra agenda no dia certo com o card aberto.
+  const [leadRes, activities, sidebar, nextAppointmentRes] = await Promise.all([
     supabase
       .from("vw_leads_detailed")
       .select("*")
@@ -45,6 +48,16 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
       .single(),
     getLeadActivities(companyId, id),
     getLeadSidebarData(companyId, id),
+    supabase
+      .from("appointments")
+      .select("id, starts_at")
+      .eq("company_id", companyId)
+      .eq("lead_id", id)
+      .in("status", ["scheduled", "confirmed"])
+      .gte("starts_at", new Date().toISOString())
+      .order("starts_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (leadRes.error || !leadRes.data) {
@@ -52,6 +65,12 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   }
 
   const typedLead = leadRes.data as unknown as LeadDetailed;
+  const nextAppointmentRow = nextAppointmentRes.data as
+    | { id: string; starts_at: string }
+    | null;
+  const nextAppointment = nextAppointmentRow
+    ? { id: nextAppointmentRow.id, startsAt: nextAppointmentRow.starts_at }
+    : null;
 
   return (
     <div className="p-6 lg:p-8">
@@ -59,12 +78,13 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
         leadId={typedLead.id}
         leadName={typedLead.name}
         domain={domain}
+        nextAppointment={nextAppointment}
       />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
         {/* Left column: info + tags */}
         <div className="space-y-6 lg:col-span-3">
-          <LeadInfo lead={typedLead} />
+          <LeadInfo lead={typedLead} domain={domain} />
           <LeadTags
             leadId={typedLead.id}
             initialAllTags={sidebar.allTags}

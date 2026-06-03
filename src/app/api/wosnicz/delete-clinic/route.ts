@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   if (!company) {
     return NextResponse.json(
-      { error: "Clínica não encontrada." },
+      { error: "Organização não encontrada." },
       { status: 404 }
     );
   }
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   if (realDomain === "wosnicz") {
     return NextResponse.json(
-      { error: "Não é permitido excluir a clínica-sistema Wosnicz." },
+      { error: "Não é permitido excluir a organização-sistema Wosnicz." },
       { status: 400 }
     );
   }
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
 
   if (deleteCompanyError) {
     return NextResponse.json(
-      { error: `Erro ao excluir clínica: ${deleteCompanyError.message}` },
+      { error: `Erro ao excluir organização: ${deleteCompanyError.message}` },
       { status: 500 }
     );
   }

@@ -74,7 +74,12 @@ export const getAuthSession = cache(async (): Promise<AuthSession> => {
   };
 });
 
-export type DomainCompany = { id: string; name: string };
+export type DomainCompany = {
+  id: string;
+  name: string;
+  /** IANA timezone string. Default "America/Sao_Paulo" para registros antigos. */
+  timezone: string;
+};
 
 /** Empresa do slug da URL — uma leitura por requisição RSC. */
 export const getDomainCompany = cache(
@@ -82,11 +87,16 @@ export const getDomainCompany = cache(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("companies")
-      .select("id, name")
+      .select("id, name, timezone")
       .eq("domain", domain)
       .single();
 
     if (error || !data) return null;
-    return data as DomainCompany;
+    const row = data as { id: string; name: string; timezone: string | null };
+    return {
+      id: row.id,
+      name: row.name,
+      timezone: row.timezone || "America/Sao_Paulo",
+    };
   }
 );

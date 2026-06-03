@@ -1,9 +1,12 @@
 import { type InputHTMLAttributes, forwardRef } from "react";
+import { HelpIcon } from "./help-icon";
 
 type InputVariant = "light" | "dark";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
+  /** Quando preenchido, mostra um icone "?" ao lado do label com a explicacao. */
+  tooltip?: string;
   error?: string;
   variant?: InputVariant;
 }
@@ -22,7 +25,7 @@ const VARIANT_INPUT: Record<InputVariant, string> = {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   (
-    { label, error, className = "", id, variant = "light", ...props },
+    { label, tooltip, error, className = "", id, variant = "light", ...props },
     ref
   ) => {
     const inputId = id || label?.toLowerCase().replace(/\s/g, "-");
@@ -35,6 +38,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={`block text-sm font-medium ${VARIANT_LABEL[variant]}`}
           >
             {label}
+            {tooltip && <HelpIcon>{tooltip}</HelpIcon>}
           </label>
         )}
         <input

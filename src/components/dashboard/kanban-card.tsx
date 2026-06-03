@@ -217,14 +217,6 @@ export function KanbanCard({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {lead.specialty_name && (
-          <span
-            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
-            style={{ backgroundColor: lead.specialty_color ?? "#6366f1" }}
-          >
-            {lead.specialty_name}
-          </span>
-        )}
         {lead.source_name && (
           <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
             {lead.source_name}
@@ -260,7 +252,7 @@ export function KanbanCard({
           <span
             title={
               lead.assigned_is_dentist
-                ? `Dentista: ${lead.assigned_to_name}`
+                ? `Profissional: ${lead.assigned_to_name}`
                 : lead.assigned_to_name
             }
             className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold

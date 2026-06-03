@@ -2,12 +2,17 @@ import { redirect } from "next/navigation";
 import { getAuthSession, getDomainCompany } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
 import type { WhatsAppChat, WhatsAppInstance } from "@/lib/types/database";
+import { jidToPhone, phoneToJid } from "@/lib/evolution/phone";
 import { ConversasContent } from "./conversas-content";
 import Link from "next/link";
 
 interface ConversasPageProps {
   params: Promise<{ domain: string }>;
-  searchParams: Promise<{ chat?: string }>;
+  searchParams: Promise<{
+    chat?: string;
+    phone?: string;
+    leadId?: string;
+  }>;
 }
 
 export default async function ConversasPage({
@@ -15,7 +20,7 @@ export default async function ConversasPage({
   searchParams,
 }: ConversasPageProps) {
   const { domain } = await params;
-  const { chat } = await searchParams;
+  const { chat, phone, leadId } = await searchParams;
 
   const [{ user }, company] = await Promise.all([
     getAuthSession(),
@@ -34,6 +39,23 @@ export default async function ConversasPage({
     .maybeSingle();
   const instance = instanceRow as WhatsAppInstance | null;
 
+  // Detecta sync em andamento (mesma logica do /api/whatsapp/instance/status).
+  // Usado para mostrar o banner amigavel "Sincronizando suas conversas..."
+  // quando o usuario acabou de conectar e veio direto pra essa aba — sem
+  // esperar o sync terminar em Settings.
+  const SYNC_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
+  function isSyncInProgress(inst: WhatsAppInstance | null): boolean {
+    if (!inst?.last_manual_sync_at) return false;
+    const startedMs = Date.parse(inst.last_manual_sync_at);
+    if (!Number.isFinite(startedMs)) return false;
+    if (Date.now() - startedMs > SYNC_PROGRESS_TIMEOUT_MS) return false;
+    if (!inst.sync_finished_at) return true;
+    const finishedMs = Date.parse(inst.sync_finished_at);
+    if (!Number.isFinite(finishedMs)) return true;
+    return finishedMs < startedMs;
+  }
+  const initialSyncInProgress = isSyncInProgress(instance);
+
   if (!instance || instance.status !== "connected") {
     return (
       <div className="flex h-screen items-center justify-center p-6">
@@ -42,7 +64,7 @@ export default async function ConversasPage({
             WhatsApp ainda nao conectado
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Para usar a aba Conversas, conecte o numero WhatsApp da clinica em
+            Para usar a aba Conversas, conecte o numero WhatsApp da organizacao em
             Configuracoes.
           </p>
           <Link
@@ -54,6 +76,100 @@ export default async function ConversasPage({
         </div>
       </div>
     );
+  }
+
+  // Deep-link vindo dos leads/kanban: ?phone=...&leadId=...
+  // Resolve (ou cria) o chat correspondente e redireciona para ?chat=ID.
+  // O `instance` ja foi validado como conectado acima — nao criamos chat
+  // orfao quando o WhatsApp esta off.
+  if ((phone || leadId) && !chat) {
+    let targetPhone: string | null = phone ?? null;
+    let targetLeadId: string | null = leadId ?? null;
+    let leadName: string | null = null;
+
+    if (targetLeadId) {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("id, phone, name")
+        .eq("id", targetLeadId)
+        .eq("company_id", company.id)
+        .maybeSingle();
+      const typedLead = leadRow as
+        | { id: string; phone: string | null; name: string }
+        | null;
+      if (typedLead) {
+        leadName = typedLead.name;
+        if (!targetPhone) targetPhone = typedLead.phone;
+      } else {
+        // Lead nao pertence a essa company (ou nao existe) — ignora o vinculo.
+        targetLeadId = null;
+      }
+    }
+
+    const targetJid = phoneToJid(targetPhone);
+    if (!targetJid) {
+      return (
+        <div className="flex h-screen items-center justify-center p-6">
+          <div className="max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+            <h1 className="text-base font-semibold text-gray-900">
+              Telefone invalido
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Nao foi possivel abrir uma conversa: o telefone do lead esta
+              vazio ou em formato invalido. Edite o lead e adicione um
+              telefone valido para iniciar a conversa.
+            </p>
+            <Link
+              href={`/${domain}/conversas`}
+              className="mt-4 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Voltar para Conversas
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
+    // Procura chat existente com mesmo remote_jid
+    const { data: existing } = await supabase
+      .from("whatsapp_chats")
+      .select("id, lead_id")
+      .eq("company_id", company.id)
+      .eq("remote_jid", targetJid)
+      .maybeSingle();
+    const existingChat = existing as
+      | { id: string; lead_id: string | null }
+      | null;
+
+    if (existingChat) {
+      // Se chat ja existia mas nao tinha vinculo com lead, aproveita para
+      // associar agora — assim historico passado fica "casado" com o lead.
+      if (!existingChat.lead_id && targetLeadId) {
+        await supabase
+          .from("whatsapp_chats")
+          .update({ lead_id: targetLeadId })
+          .eq("id", existingChat.id);
+      }
+      redirect(`/${domain}/conversas?chat=${existingChat.id}`);
+    }
+
+    // Nao existe -> cria com nome do lead (fallback: numero formatado)
+    const fallbackName = jidToPhone(targetJid) || targetJid;
+    const { data: created } = await supabase
+      .from("whatsapp_chats")
+      .insert({
+        company_id: company.id,
+        instance_id: instance.id,
+        remote_jid: targetJid,
+        lead_id: targetLeadId,
+        name: leadName ?? fallbackName,
+      })
+      .select("id")
+      .single();
+    const createdChat = created as { id: string } | null;
+    if (createdChat) {
+      redirect(`/${domain}/conversas?chat=${createdChat.id}`);
+    }
   }
 
   const PAGE_SIZE = 30;
@@ -83,6 +199,7 @@ export default async function ConversasPage({
       initialChatId={chat ?? null}
       initialHasMore={hasMore}
       pageSize={PAGE_SIZE}
+      initialSyncInProgress={initialSyncInProgress}
     />
   );
 }

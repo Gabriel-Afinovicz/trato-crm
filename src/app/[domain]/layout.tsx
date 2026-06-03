@@ -36,6 +36,7 @@ export default async function DomainLayout({
         profile,
         companyId: company?.id ?? null,
         companyName: company?.name ?? null,
+        companyTimezone: company?.timezone ?? "America/Sao_Paulo",
         domain,
       }}
     >

@@ -27,6 +27,8 @@ import {
 } from "@/lib/whatsapp/reactions";
 import { useWhatsAppEvents } from "@/lib/whatsapp/use-whatsapp-events";
 import { useWhatsAppHealth } from "@/lib/whatsapp/use-whatsapp-health";
+import { isEditableTarget, hasCommandModifier } from "@/lib/utils/keyboard";
+import { SnippetPicker } from "@/components/conversas/snippet-picker";
 
 interface ConversasContentProps {
   domain: string;
@@ -36,6 +38,11 @@ interface ConversasContentProps {
   initialChatId: string | null;
   initialHasMore: boolean;
   pageSize: number;
+  // True quando o sync automatico disparado pelo connect ainda esta em
+  // andamento. Mostra um banner amigavel "Sincronizando..." enquanto
+  // isso for true; quando termina (detectado por polling do status),
+  // recarrega a lista de chats automaticamente.
+  initialSyncInProgress?: boolean;
 }
 
 function compareChatsDesc(a: WhatsAppChat, b: WhatsAppChat): number {
@@ -369,6 +376,7 @@ export function ConversasContent({
   initialChatId,
   initialHasMore,
   pageSize,
+  initialSyncInProgress = false,
 }: ConversasContentProps) {
   const session = useSession();
   const currentUserName = session.profile?.name ?? null;
@@ -377,6 +385,11 @@ export function ConversasContent({
   const [chats, setChats] = useState<WhatsAppChat[]>(initialChats);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Banner "Sincronizando suas conversas..." enquanto o sync automatico
+  // disparado pelo connect ainda nao terminou. Inicializado server-side
+  // via prop; depois e atualizado por polling leve do /instance/status
+  // (ver useEffect mais abaixo). Quando termina, recarrega chats.
+  const [syncInProgress, setSyncInProgress] = useState(initialSyncInProgress);
   const [activeChatId, setActiveChatId] = useState<string | null>(
     initialChatId ?? initialChats[0]?.id ?? null
   );
@@ -439,6 +452,20 @@ export function ConversasContent({
   const [highlightedMessageId, setHighlightedMessageId] = useState<
     string | null
   >(null);
+
+  // Busca dentro da conversa aberta (Ctrl+F). Filtra `renderedMessages` por
+  // texto (case-insensitive) e permite navegar entre matches com Enter /
+  // setas. So procura no historico ja carregado em memoria.
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const [chatSearchIdx, setChatSearchIdx] = useState(0);
+  const chatSearchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Picker de snippets / mensagens rapidas. Abre via botao "raio" ou
+  // automaticamente quando o draft comeca com `/` (o texto apos a
+  // barra serve de filtro inicial).
+  const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
+  const [snippetInitialQuery, setSnippetInitialQuery] = useState("");
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Modal de visualizacao em tela cheia. `null` = fechado; objeto contem
   // o tipo de midia (imagem ou documento) e o id da mensagem que originou
@@ -517,6 +544,61 @@ export function ConversasContent({
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
   }, [activeChatId]);
+
+  // Polling leve do /instance/status enquanto o sync inicial estiver em
+  // andamento (operador acabou de conectar pela primeira vez e veio
+  // direto pra aba Conversas). Em ate ~10s detectamos o fim do sync,
+  // ocultamos o banner e recarregamos a lista de chats. Polling para
+  // automaticamente quando syncInProgress vira false — sem custo de
+  // request continuo.
+  useEffect(() => {
+    if (!syncInProgress) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const supabase = createClient();
+
+    async function check() {
+      try {
+        const res = await fetch(
+          `/api/whatsapp/instance/status?domain=${encodeURIComponent(domain)}`
+        );
+        if (!res.ok || cancelled) return;
+        const payload = (await res.json()) as { syncInProgress?: boolean };
+        if (cancelled) return;
+        if (!payload.syncInProgress) {
+          setSyncInProgress(false);
+          // Sync acabou de terminar: recarrega a lista de chats para
+          // mostrar tudo que foi sincronizado.
+          const { data } = await supabase
+            .from("whatsapp_chats")
+            .select("*")
+            .eq("company_id", companyId)
+            .eq("is_archived", false)
+            .order("last_message_at", {
+              ascending: false,
+              nullsFirst: false,
+            })
+            .limit(pageSize + 1);
+          if (cancelled) return;
+          const all = (data as WhatsAppChat[] | null) ?? [];
+          setHasMore(all.length > pageSize);
+          setChats(all.slice(0, pageSize));
+          return;
+        }
+      } catch {
+        // segue tentando
+      }
+      if (!cancelled) {
+        timer = setTimeout(check, 4_000);
+      }
+    }
+
+    timer = setTimeout(check, 2_500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [syncInProgress, domain, companyId, pageSize]);
 
   // Cancela reply em andamento quando troca de conversa: o snapshot do reply
   // referencia uma mensagem do chat anterior; manter no state geraria envio
@@ -1195,12 +1277,12 @@ export function ConversasContent({
       prev.map((m) =>
         m.id === target.messageId
           ? {
-              ...m,
-              body: newBody,
-              edited_at: nowIso,
-              original_body: m.original_body ?? m.body,
-              edit_count: (m.edit_count ?? 0) + 1,
-            }
+            ...m,
+            body: newBody,
+            edited_at: nowIso,
+            original_body: m.original_body ?? m.body,
+            edit_count: (m.edit_count ?? 0) + 1,
+          }
           : m
       )
     );
@@ -1272,8 +1354,9 @@ export function ConversasContent({
             : c
         )
       );
+      console.error("[whatsapp/edit] network error", err);
       setSendError(
-        err instanceof Error ? err.message : "Erro de rede ao editar."
+        "Nao foi possivel editar a mensagem agora. Verifique sua conexao e tente novamente."
       );
     } finally {
       setEditing(false);
@@ -1327,8 +1410,9 @@ export function ConversasContent({
         );
       }
     } catch (err) {
+      console.error("[whatsapp/react] network error", err);
       setSendError(
-        err instanceof Error ? err.message : "Erro de rede ao reagir."
+        "Nao foi possivel registrar a reacao agora. Verifique sua conexao e tente novamente."
       );
       setMessages((prev) =>
         prev.map((m) =>
@@ -1368,6 +1452,141 @@ export function ConversasContent({
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     };
   }, []);
+
+  // Lista de matches da busca dentro da conversa atual. Recalculada
+  // toda vez que a query ou as mensagens carregadas mudam.
+  const chatSearchMatches = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q || !chatSearchOpen) return [] as WhatsAppMessage[];
+    return renderedMessages.filter((m) =>
+      (m.body ?? "").toLowerCase().includes(q)
+    );
+  }, [chatSearchQuery, chatSearchOpen, renderedMessages]);
+
+  // Quando os matches mudam (query nova ou mensagem nova chegando), pula
+  // direto pro primeiro resultado para o usuario nao precisar clicar.
+  useEffect(() => {
+    if (chatSearchMatches.length === 0) {
+      setChatSearchIdx(0);
+      return;
+    }
+    setChatSearchIdx((prev) =>
+      prev >= chatSearchMatches.length ? 0 : prev
+    );
+  }, [chatSearchMatches.length]);
+
+  // Rola ate o match atual e aplica o destaque visual.
+  useEffect(() => {
+    if (!chatSearchOpen) return;
+    const target = chatSearchMatches[chatSearchIdx];
+    if (!target) return;
+    const el = document.querySelector<HTMLElement>(
+      `[data-msg-id="${target.id}"]`
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(target.id);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+      highlightTimerRef.current = null;
+    }, 1500);
+  }, [chatSearchIdx, chatSearchMatches, chatSearchOpen]);
+
+  function openChatSearch() {
+    setChatSearchOpen(true);
+    window.setTimeout(() => chatSearchInputRef.current?.focus(), 30);
+  }
+
+  // Atualiza o draft e, ao mesmo tempo, controla o picker de snippets
+  // baseado no prefixo `/`. Centralizado em uma so funcao para nao
+  // depender de useEffect-com-setState (evita warning de cascading
+  // renders) e para que o picker reaja na mesma keystroke.
+  function setDraftSmart(next: string) {
+    setDraft(next);
+    if (editingMessage) {
+      if (snippetPickerOpen) setSnippetPickerOpen(false);
+      return;
+    }
+    if (next.startsWith("/")) {
+      setSnippetInitialQuery(next.slice(1));
+      if (!snippetPickerOpen) setSnippetPickerOpen(true);
+    } else if (snippetPickerOpen) {
+      setSnippetPickerOpen(false);
+    }
+  }
+
+  function applySnippet(body: string) {
+    setDraft(body);
+    setSnippetPickerOpen(false);
+  }
+
+  function openSnippetPickerManually() {
+    setSnippetInitialQuery("");
+    setSnippetPickerOpen(true);
+  }
+  function closeChatSearch() {
+    setChatSearchOpen(false);
+    setChatSearchQuery("");
+    setChatSearchIdx(0);
+  }
+  function nextMatch() {
+    if (chatSearchMatches.length === 0) return;
+    setChatSearchIdx((p) => (p + 1) % chatSearchMatches.length);
+  }
+  function prevMatch() {
+    if (chatSearchMatches.length === 0) return;
+    setChatSearchIdx((p) =>
+      (p - 1 + chatSearchMatches.length) % chatSearchMatches.length
+    );
+  }
+
+  // Atalho Ctrl+F / Cmd+F dentro da tela de conversas para abrir a
+  // busca. So intercepta quando ha conversa ativa — caso contrario
+  // deixa o "find" nativo do browser funcionar normalmente.
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      const isFind = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f";
+      if (isFind && activeChatId) {
+        e.preventDefault();
+        openChatSearch();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeChatId]);
+
+  // Atalhos J / K navegam pela lista de conversas (proxima / anterior),
+  // estilo Gmail. So fora de campos de texto e sem modificadores. Se nenhuma
+  // conversa estiver ativa, J abre a primeira e K abre a ultima.
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (isEditableTarget(e.target) || hasCommandModifier(e)) return;
+      const key = e.key.toLowerCase();
+      if (key !== "j" && key !== "k") return;
+      if (filteredChats.length === 0) return;
+      e.preventDefault();
+
+      const currentIndex = filteredChats.findIndex(
+        (c) => c.id === activeChatId
+      );
+      let nextIndex: number;
+      if (currentIndex === -1) {
+        nextIndex = key === "j" ? 0 : filteredChats.length - 1;
+      } else if (key === "j") {
+        nextIndex = Math.min(currentIndex + 1, filteredChats.length - 1);
+      } else {
+        nextIndex = Math.max(currentIndex - 1, 0);
+      }
+      const target = filteredChats[nextIndex];
+      if (target && target.id !== activeChatId) {
+        setActiveChatId(target.id);
+        setShowContactPanel(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filteredChats, activeChatId]);
 
   function handleSend(e?: FormEvent) {
     e?.preventDefault();
@@ -1468,6 +1687,116 @@ export function ConversasContent({
             prev.map((m) =>
               m.id === tempId
                 ? {
+                  ...m,
+                  id: payload.messageId!,
+                  status: "sent",
+                  sent_at: new Date().toISOString(),
+                }
+                : m
+            )
+          );
+        }
+      } catch (err) {
+        console.error("[whatsapp/send] network error", err);
+        setSendError(
+          "Nao foi possivel enviar a mensagem agora. Verifique sua conexao e tente novamente."
+        );
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  status: "failed",
+                  error_message: "Sem conexao",
+                }
+              : m
+          )
+        );
+      } finally {
+        pendingSendsRef.current = Math.max(0, pendingSendsRef.current - 1);
+        if (pendingSendsRef.current === 0) {
+          setSending(false);
+        }
+      }
+    })();
+    sendQueueRef.current = thisSend;
+  }
+
+  // Reenvio manual de mensagem de texto com falha. Reaproveita o mesmo
+  // pipeline de fila (`sendQueueRef`) e o mesmo padrao otimistico do
+  // `handleSend` — assim a ordem cronologica e preservada e a UI volta
+  // a mostrar "pending" enquanto a tentativa esta no ar. Limitacoes
+  // conscientes:
+  //  - so trata mensagem `text` em estado `failed` (mídia perde o `File`
+  //    original apos o primeiro envio, e o body texto do retry sempre vem
+  //    da propria bolha);
+  //  - descarta o reply (quote): a mensagem otimista nao guarda o
+  //    `replyToMessageId` original. Caso raro o suficiente para nao
+  //    valer o estado extra.
+  function handleRetry(msg: WhatsAppMessage) {
+    if (msg.status !== "failed") return;
+    if (msg.media_type !== "text") return;
+    if (!msg.body) return;
+    const text = msg.body;
+    const chatIdAtSend = msg.chat_id;
+    const tempId = msg.id;
+
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === tempId ? { ...m, status: "pending", error_message: null } : m
+      )
+    );
+    setSendError(null);
+
+    const wasQueueEmpty = pendingSendsRef.current === 0;
+    pendingSendsRef.current += 1;
+    setSending(true);
+
+    const previousQueue = sendQueueRef.current;
+    const thisSend = (async () => {
+      try {
+        await previousQueue;
+      } catch {
+        // erros do envio anterior nao impedem o retry de tentar
+      }
+      if (!wasQueueEmpty) {
+        await sleep(randInt(JITTER_MIN_MS, JITTER_MAX_MS));
+      }
+      try {
+        const res = await fetch("/api/whatsapp/messages/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chatId: chatIdAtSend,
+            text,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setSendError(payload.error ?? "Falha ao reenviar.");
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    status: "failed",
+                    error_message: payload.error ?? "Falha",
+                  }
+                : m
+            )
+          );
+          return;
+        }
+        const payload = (await res.json().catch(() => ({}))) as {
+          messageId?: string;
+        };
+        if (payload.messageId) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
                     ...m,
                     id: payload.messageId!,
                     status: "sent",
@@ -1478,11 +1807,18 @@ export function ConversasContent({
           );
         }
       } catch (err) {
-        setSendError(err instanceof Error ? err.message : "Falha ao enviar.");
+        console.error("[whatsapp/retry] network error", err);
+        setSendError(
+          "Nao foi possivel reenviar a mensagem agora. Verifique sua conexao e tente novamente."
+        );
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId
-              ? { ...m, status: "failed", error_message: "Erro de rede" }
+              ? {
+                  ...m,
+                  status: "failed",
+                  error_message: "Sem conexao",
+                }
               : m
           )
         );
@@ -1592,10 +1928,10 @@ export function ConversasContent({
             prev.map((m) =>
               m.id === tempId
                 ? {
-                    ...m,
-                    status: "failed",
-                    error_message: payload.error ?? "Falha",
-                  }
+                  ...m,
+                  status: "failed",
+                  error_message: payload.error ?? "Falha",
+                }
                 : m
             )
           );
@@ -1610,11 +1946,11 @@ export function ConversasContent({
             prev.map((m) =>
               m.id === tempId
                 ? {
-                    ...m,
-                    id: realId,
-                    status: "sent",
-                    sent_at: new Date().toISOString(),
-                  }
+                  ...m,
+                  id: realId,
+                  status: "sent",
+                  sent_at: new Date().toISOString(),
+                }
                 : m
             )
           );
@@ -1647,11 +1983,18 @@ export function ConversasContent({
           URL.revokeObjectURL(objectURL);
         }
       } catch (err) {
-        setSendError(err instanceof Error ? err.message : "Falha ao enviar midia.");
+        console.error("[whatsapp/send-media] network error", err);
+        setSendError(
+          "Nao foi possivel enviar o arquivo agora. Verifique sua conexao e tente novamente."
+        );
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId
-              ? { ...m, status: "failed", error_message: "Erro de rede" }
+              ? {
+                  ...m,
+                  status: "failed",
+                  error_message: "Sem conexao",
+                }
               : m
           )
         );
@@ -1819,7 +2162,10 @@ export function ConversasContent({
       setHasOlderMessages(more);
       setMessages(dedupeById(page));
     } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : "Erro de rede.");
+      console.error("[whatsapp/refresh-history] network error", err);
+      setRefreshError(
+        "Nao foi possivel recarregar o historico agora. Verifique sua conexao e tente novamente."
+      );
     } finally {
       setRefreshingHistory(false);
     }
@@ -1915,7 +2261,7 @@ export function ConversasContent({
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Conversas</h1>
           <p className="text-xs text-gray-500">
-            WhatsApp da clinica
+            WhatsApp da organizacao
             {instance.phone_number ? ` · +${instance.phone_number}` : ""}
           </p>
         </div>
@@ -1932,6 +2278,44 @@ export function ConversasContent({
               className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:border-blue-500 focus:bg-white focus:outline-none"
             />
           </div>
+
+          {syncInProgress && (
+            <div className="border-b border-emerald-100 bg-emerald-50 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <svg
+                  className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-emerald-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                  />
+                </svg>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-emerald-900">
+                    Sincronizando suas conversas
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-800">
+                    Estamos buscando seus contatos e mensagens recentes do
+                    WhatsApp. Isso pode levar de alguns segundos a 1–2 minutos.
+                    Pode continuar usando o CRM normalmente — a lista vai
+                    aparecer automaticamente quando terminar.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto">
             {filteredChats.length === 0 ? (
               <div className="p-6 text-center text-xs text-gray-400">
@@ -1939,7 +2323,9 @@ export function ConversasContent({
                   ? "Buscando..."
                   : searchResults !== null
                     ? "Nenhum contato encontrado."
-                    : "Nenhuma conversa."}
+                    : syncInProgress
+                      ? "Aguarde, carregando conversas..."
+                      : "Nenhuma conversa."}
               </div>
             ) : (
               filteredChats.map((c) => {
@@ -1953,9 +2339,8 @@ export function ConversasContent({
                       setActiveChatId(c.id);
                       setShowContactPanel(false);
                     }}
-                    className={`flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors ${
-                      active ? "bg-blue-50" : "hover:bg-gray-50"
-                    }`}
+                    className={`flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors ${active ? "bg-blue-50" : "hover:bg-gray-50"
+                      }`}
                   >
                     <ContactAvatar
                       pictureUrl={c.profile_picture_url}
@@ -1967,29 +2352,26 @@ export function ConversasContent({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
                         <p
-                          className={`truncate text-sm text-gray-900 ${
-                            hasUnread ? "font-semibold" : "font-medium"
-                          }`}
+                          className={`truncate text-sm text-gray-900 ${hasUnread ? "font-semibold" : "font-medium"
+                            }`}
                         >
                           {c.name || jidToPhoneDisplay(c.remote_jid)}
                         </p>
                         <span
-                          className={`shrink-0 text-[10px] ${
-                            hasUnread
+                          className={`shrink-0 text-[10px] ${hasUnread
                               ? "font-semibold text-emerald-600"
                               : "text-gray-400"
-                          }`}
+                            }`}
                         >
                           {fmtTime(c.last_message_at)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <p
-                          className={`flex min-w-0 items-center gap-1 truncate text-xs ${
-                            hasUnread
+                          className={`flex min-w-0 items-center gap-1 truncate text-xs ${hasUnread
                               ? "font-medium text-gray-700"
                               : "text-gray-500"
-                          }`}
+                            }`}
                         >
                           {/* Checks de WhatsApp na previa, igual o app
                               oficial: so quando a ultima mensagem foi
@@ -2009,9 +2391,8 @@ export function ConversasContent({
                         </p>
                         {hasUnread && (
                           <span
-                            aria-label={`${c.unread_count} mensagem${
-                              c.unread_count === 1 ? "" : "s"
-                            } nao lida${c.unread_count === 1 ? "" : "s"}`}
+                            aria-label={`${c.unread_count} mensagem${c.unread_count === 1 ? "" : "s"
+                              } nao lida${c.unread_count === 1 ? "" : "s"}`}
                             className="ml-2 inline-flex min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm"
                           >
                             {c.unread_count > 99 ? "99+" : c.unread_count}
@@ -2112,6 +2493,28 @@ export function ConversasContent({
                   )}
                   <button
                     type="button"
+                    onClick={openChatSearch}
+                    title="Buscar nesta conversa (Ctrl+F)"
+                    aria-label="Buscar nesta conversa"
+                    className="inline-flex items-center justify-center rounded-lg border border-gray-200 p-1.5 text-gray-600 hover:bg-gray-50"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
                     onClick={refreshHistory}
                     disabled={refreshingHistory}
                     title={
@@ -2142,6 +2545,120 @@ export function ConversasContent({
                   </button>
                 </div>
               </div>
+
+              {/* Barra de busca dentro da conversa atual. Abre via botao
+                  da lupa no header ou Ctrl+F. Procura apenas no historico
+                  ja carregado em memoria — clicando em "Carregar
+                  mensagens anteriores" o range cresce. */}
+              {chatSearchOpen && (
+                <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2">
+                  <svg
+                    className="h-4 w-4 shrink-0 text-gray-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                    />
+                  </svg>
+                  <input
+                    ref={chatSearchInputRef}
+                    type="text"
+                    value={chatSearchQuery}
+                    onChange={(e) => setChatSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (e.shiftKey) prevMatch();
+                        else nextMatch();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        closeChatSearch();
+                      }
+                    }}
+                    placeholder="Buscar nesta conversa..."
+                    className="flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                  />
+                  <span className="shrink-0 text-xs text-gray-500 tabular-nums">
+                    {chatSearchMatches.length === 0
+                      ? chatSearchQuery.trim()
+                        ? "0 resultados"
+                        : ""
+                      : `${chatSearchIdx + 1} de ${chatSearchMatches.length}`}
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={prevMatch}
+                      disabled={chatSearchMatches.length === 0}
+                      title="Anterior (Shift+Enter)"
+                      aria-label="Resultado anterior"
+                      className="rounded p-1 text-gray-500 hover:bg-gray-200 disabled:opacity-40"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.2}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m4.5 15.75 7.5-7.5 7.5 7.5"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={nextMatch}
+                      disabled={chatSearchMatches.length === 0}
+                      title="Proximo (Enter)"
+                      aria-label="Proximo resultado"
+                      className="rounded p-1 text-gray-500 hover:bg-gray-200 disabled:opacity-40"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.2}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m19.5 8.25-7.5 7.5-7.5-7.5"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeChatSearch}
+                      title="Fechar (Esc)"
+                      aria-label="Fechar busca"
+                      className="ml-1 rounded p-1 text-gray-500 hover:bg-gray-200"
+                    >
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.2}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18 18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div
                 ref={scrollContainerRef}
@@ -2186,6 +2703,7 @@ export function ConversasContent({
                         onJumpToQuote={jumpToQuote}
                         onReact={reactToMessage}
                         onEdit={startEdit}
+                        onRetry={handleRetry}
                         onOpenMedia={(kind, id) =>
                           setLightbox({ kind, messageId: id })
                         }
@@ -2214,16 +2732,14 @@ export function ConversasContent({
               {replyingTo && !editingMessage && (
                 <div className="flex items-stretch gap-3 border-t border-gray-200 bg-gray-50 px-4 py-2">
                   <div
-                    className={`w-1 shrink-0 rounded-full ${
-                      replyingTo.fromMe ? "bg-emerald-500" : "bg-blue-500"
-                    }`}
+                    className={`w-1 shrink-0 rounded-full ${replyingTo.fromMe ? "bg-emerald-500" : "bg-blue-500"
+                      }`}
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1 py-1">
                     <p
-                      className={`truncate text-[11px] font-semibold ${
-                        replyingTo.fromMe ? "text-emerald-700" : "text-blue-700"
-                      }`}
+                      className={`truncate text-[11px] font-semibold ${replyingTo.fromMe ? "text-emerald-700" : "text-blue-700"
+                        }`}
                     >
                       Respondendo a {replyingTo.senderLabel}
                     </p>
@@ -2313,7 +2829,7 @@ export function ConversasContent({
               )}
               <form
                 onSubmit={handleSend}
-                className="flex items-end gap-2 border-t border-gray-200 bg-white px-4 py-3"
+                className="relative flex items-end gap-2 border-t border-gray-200 bg-white px-4 py-3"
               >
                 <input
                   ref={fileInputRef}
@@ -2348,9 +2864,48 @@ export function ConversasContent({
                     <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                   </svg>
                 </button>
+                <button
+                  type="button"
+                  onClick={openSnippetPickerManually}
+                  aria-label="Mensagens rapidas"
+                  title="Mensagens rapidas (digite / no inicio)"
+                  disabled={Boolean(editingMessage)}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+                  </svg>
+                </button>
+                <SnippetPicker
+                  open={snippetPickerOpen && !editingMessage}
+                  onClose={() => setSnippetPickerOpen(false)}
+                  onPick={applySnippet}
+                  initialQuery={snippetInitialQuery}
+                  domain={domain}
+                  companyId={companyId}
+                  ctx={{
+                    leadName:
+                      activeChat?.name ??
+                      (activeChat
+                        ? jidToPhoneDisplay(activeChat.remote_jid)
+                        : ""),
+                    operatorName: currentUserName ?? "",
+                    companyName: session.companyName ?? "",
+                  }}
+                />
                 <textarea
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => setDraftSmart(e.target.value)}
                   onKeyDown={handleKey}
                   placeholder={
                     editingMessage
@@ -2358,11 +2913,10 @@ export function ConversasContent({
                       : "Digite uma mensagem... (Enter para enviar, Shift+Enter para nova linha)"
                   }
                   rows={2}
-                  className={`flex-1 resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
-                    editingMessage
+                  className={`flex-1 resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${editingMessage
                       ? "border-amber-300 bg-amber-50/30 focus:border-amber-500 focus:ring-amber-500/20"
                       : "border-gray-200 focus:border-blue-500 focus:ring-blue-500/20"
-                  }`}
+                    }`}
                 />
                 <button
                   type="submit"
@@ -2371,13 +2925,12 @@ export function ConversasContent({
                     editing ||
                     (Boolean(editingMessage) &&
                       draft.trim() ===
-                        (editingMessage?.originalBody ?? "").trim())
+                      (editingMessage?.originalBody ?? "").trim())
                   }
-                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50 ${
-                    editingMessage
+                  className={`rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50 ${editingMessage
                       ? "bg-amber-600 hover:bg-amber-700"
                       : "bg-emerald-600 hover:bg-emerald-700"
-                  }`}
+                    }`}
                   title={
                     editingMessage
                       ? "Salvar edicao"
@@ -3042,9 +3595,8 @@ function MessageImage({
       <img
         src={src}
         alt="Imagem recebida"
-        className={`block max-h-64 w-auto object-cover ${
-          srcOverride ? "" : "cursor-zoom-in"
-        }`}
+        className={`block max-h-64 w-auto object-cover ${srcOverride ? "" : "cursor-zoom-in"
+          }`}
         onError={() => setErrored(true)}
       />
     </button>
@@ -3749,6 +4301,7 @@ function MessageBubble({
   onJumpToQuote,
   onReact,
   onEdit,
+  onRetry,
   onOpenMedia,
   highlighted,
   contactName,
@@ -3762,6 +4315,9 @@ function MessageBubble({
   // Inicia edicao da mensagem. So sera chamada para mensagens que passam
   // em `canEditMessageNow` — o botao fica escondido nos demais casos.
   onEdit: (message: WhatsAppMessage) => void;
+  // Reenvia mensagem de texto que falhou. Chamada pelo botao "Tentar
+  // novamente" renderizado abaixo da bolha quando status === "failed".
+  onRetry: (message: WhatsAppMessage) => void;
   onOpenMedia: (kind: "image" | "document", messageId: string) => void;
   highlighted: boolean;
   contactName: string;
@@ -3898,39 +4454,33 @@ function MessageBubble({
     <div
       data-msg-id={message.id}
       data-evo-id={message.evolution_message_id ?? ""}
-      className={`group/msg flex flex-col ${
-        isMe ? "items-end" : "items-start"
-      } ${highlighted ? "animate-pulse" : ""}`}
+      className={`group/msg flex flex-col ${isMe ? "items-end" : "items-start"
+        } ${highlighted ? "animate-pulse" : ""}`}
     >
       {isMe && senderName && (
         <span
-          className={`mb-0.5 px-1 text-[10px] font-medium ${
-            isExternal ? "text-gray-400 italic" : "text-emerald-700"
-          }`}
+          className={`mb-0.5 px-1 text-[10px] font-medium ${isExternal ? "text-gray-400 italic" : "text-emerald-700"
+            }`}
         >
           {senderName}
         </span>
       )}
       <div
-        className={`relative flex max-w-[70%] items-start gap-1.5 ${
-          isMe ? "flex-row-reverse" : "flex-row"
-        }`}
+        className={`relative flex max-w-[70%] items-start gap-1.5 ${isMe ? "flex-row-reverse" : "flex-row"
+          }`}
       >
         <div
           className={
             isSticker
-              ? `min-w-0 ${
-                  highlighted
-                    ? "rounded-lg ring-2 ring-emerald-400 ring-offset-1"
-                    : ""
-                }`
-              : `min-w-0 rounded-2xl text-sm shadow-sm transition-shadow ${
-                  isImage || isVideo ? "p-1.5" : "px-3 py-2"
-                } ${
-                  isMe
-                    ? "bg-emerald-100 text-emerald-900"
-                    : "bg-white text-gray-900 border border-gray-200"
-                } ${highlighted ? "ring-2 ring-emerald-400 ring-offset-1" : ""}`
+              ? `min-w-0 ${highlighted
+                ? "rounded-lg ring-2 ring-emerald-400 ring-offset-1"
+                : ""
+              }`
+              : `min-w-0 rounded-2xl text-sm shadow-sm transition-shadow ${isImage || isVideo ? "p-1.5" : "px-3 py-2"
+              } ${isMe
+                ? "bg-emerald-100 text-emerald-900"
+                : "bg-white text-gray-900 border border-gray-200"
+              } ${highlighted ? "ring-2 ring-emerald-400 ring-offset-1" : ""}`
           }
         >
           {hasQuote && (
@@ -3938,11 +4488,10 @@ function MessageBubble({
               type="button"
               onClick={handleQuoteClick}
               disabled={!message.quoted_evolution_message_id}
-              className={`mb-1 flex w-full items-stretch gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-                isMe
+              className={`mb-1 flex w-full items-stretch gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${isMe
                   ? "bg-emerald-50/80 hover:bg-emerald-50"
                   : "bg-gray-50 hover:bg-gray-100"
-              } disabled:cursor-default`}
+                } disabled:cursor-default`}
               title={
                 message.quoted_evolution_message_id
                   ? "Ir para mensagem original"
@@ -3951,17 +4500,15 @@ function MessageBubble({
             >
               <span
                 aria-hidden
-                className={`w-0.5 shrink-0 rounded-full ${
-                  message.quoted_from_me ? "bg-emerald-500" : "bg-blue-500"
-                }`}
+                className={`w-0.5 shrink-0 rounded-full ${message.quoted_from_me ? "bg-emerald-500" : "bg-blue-500"
+                  }`}
               />
               <span className="min-w-0 flex-1">
                 <span
-                  className={`block truncate text-[11px] font-semibold ${
-                    message.quoted_from_me
+                  className={`block truncate text-[11px] font-semibold ${message.quoted_from_me
                       ? "text-emerald-700"
                       : "text-blue-700"
-                  }`}
+                    }`}
                 >
                   {message.quoted_from_me ? "Voce" : contactName}
                 </span>
@@ -4020,15 +4567,14 @@ function MessageBubble({
             </p>
           ) : null}
           <div
-            className={`flex items-center justify-end gap-1 text-[10px] text-gray-500 ${
-              isSticker
+            className={`flex items-center justify-end gap-1 text-[10px] text-gray-500 ${isSticker
                 ? "mt-0.5 px-1"
                 : isAudio || isDocument
                   ? "mt-1"
                   : isMedia
                     ? "mt-0.5 px-1.5 pb-0.5"
                     : "mt-1"
-            }`}
+              }`}
           >
             {message.edited_at && (
               <span
@@ -4061,12 +4607,41 @@ function MessageBubble({
               {message.error_message}
             </p>
           )}
+          {message.status === "failed" &&
+            message.media_type === "text" &&
+            isTemp && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry(message);
+                }}
+                className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-red-600 hover:text-red-700 hover:underline focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M3 12a9 9 0 0 1 15.5-6.36L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M21 12a9 9 0 0 1-15.5 6.36L3 16" />
+                  <path d="M3 21v-5h5" />
+                </svg>
+                Tentar novamente
+              </button>
+            )}
         </div>
         {(canReply || canReact || canEdit) && (
           <div
-            className={`mt-1 flex shrink-0 items-center gap-1 self-start ${
-              isMe ? "flex-row-reverse" : "flex-row"
-            }`}
+            className={`mt-1 flex shrink-0 items-center gap-1 self-start ${isMe ? "flex-row-reverse" : "flex-row"
+              }`}
           >
             {canReply && (
               <button
@@ -4126,11 +4701,10 @@ function MessageBubble({
                   aria-haspopup="dialog"
                   aria-expanded={pickerOpen}
                   title="Reagir"
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-gray-500 shadow-sm ring-1 ring-gray-200 transition-opacity hover:bg-gray-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                    pickerOpen
+                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full bg-white text-gray-500 shadow-sm ring-1 ring-gray-200 transition-opacity hover:bg-gray-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${pickerOpen
                       ? "opacity-100"
                       : "opacity-0 group-hover/msg:opacity-100 focus:opacity-100"
-                  }`}
+                    }`}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -4153,9 +4727,8 @@ function MessageBubble({
                   <div
                     role="dialog"
                     aria-label="Escolha um emoji"
-                    className={`absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 rounded-full border border-gray-200 bg-white p-1 shadow-lg ${
-                      isMe ? "right-full mr-2" : "left-full ml-2"
-                    }`}
+                    className={`absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 rounded-full border border-gray-200 bg-white p-1 shadow-lg ${isMe ? "right-full mr-2" : "left-full ml-2"
+                      }`}
                   >
                     {QUICK_REACTION_EMOJIS.map((emoji) => (
                       <button
@@ -4188,9 +4761,8 @@ function MessageBubble({
         // conteudo (texto, hora ou status "entregue/lida" que ficam a 8px+
         // do bottom).
         <div
-          className={`relative z-10 -mt-2 flex flex-wrap gap-1 ${
-            isMe ? "justify-end pr-2" : "justify-start pl-2"
-          }`}
+          className={`relative z-10 -mt-2 flex flex-wrap gap-1 ${isMe ? "justify-end pr-2" : "justify-start pl-2"
+            }`}
         >
           {reactionGroups.map((g) => (
             <button
@@ -4203,11 +4775,10 @@ function MessageBubble({
                   ? "Remover sua reacao"
                   : `Reagir com ${g.emoji}`
               }
-              className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs leading-none shadow-md ring-2 ring-white transition-colors ${
-                g.byMe
+              className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs leading-none shadow-md ring-2 ring-white transition-colors ${g.byMe
                   ? "bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                   : "bg-white text-gray-700 hover:bg-gray-50"
-              } disabled:cursor-default disabled:opacity-70`}
+                } disabled:cursor-default disabled:opacity-70`}
             >
               <span className="text-sm leading-none">{g.emoji}</span>
               {g.count > 1 && (

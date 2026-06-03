@@ -30,7 +30,7 @@ export function ClinicUsersList({ users }: ClinicUsersListProps) {
   if (users.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-        Nenhum usuário cadastrado nesta clínica.
+        Nenhum usuário cadastrado nesta organização.
       </div>
     );
   }

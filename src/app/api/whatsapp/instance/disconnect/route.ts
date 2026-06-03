@@ -50,11 +50,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyDisconnected: true });
   }
 
+  // Desconectar de verdade exige zerar o cache do Baileys na Evolution.
+  // Apenas `logout` mantem credenciais e permitiria a Evolution reabrir
+  // a sessao no proximo connect sem gerar QR. `resetInstance` faz
+  // logout + poll-ate-close + delete, garantindo que o proximo connect
+  // passe pelo fluxo de QR novamente.
   if (evolution.isConfigured()) {
     try {
-      await evolution.logout(instanceRow.instance_name);
-    } catch {
-      // se a Evolution ja perdeu sessao, segue normal
+      await evolution.resetInstance(instanceRow.instance_name);
+    } catch (err) {
+      // Falha no servico externo nao deve impedir a desconexao local: a
+      // proxima reconexao detectara estado inconsistente e refazera o
+      // reset. Logamos para diagnostico interno.
+      console.error("[whatsapp/disconnect] upstream reset failed", err);
     }
   }
 
@@ -64,6 +72,9 @@ export async function POST(req: NextRequest) {
       status: "disconnected",
       phone_number: null,
       connected_at: null,
+      // Zera o token para sinalizar ao /connect que a instancia foi
+      // removida na Evolution e precisa ser recriada (-> novo QR).
+      evolution_token: null,
     })
     .eq("id", instanceRow.id);
 

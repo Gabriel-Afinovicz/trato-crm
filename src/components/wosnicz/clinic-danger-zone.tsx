@@ -97,7 +97,7 @@ export function ClinicDangerZone({
     });
     if (!res.ok) {
       const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      setDeleteError(payload.error ?? "Erro ao excluir clínica.");
+      setDeleteError(payload.error ?? "Erro ao excluir organização.");
       setDeleting(false);
       return;
     }
@@ -117,19 +117,19 @@ export function ClinicDangerZone({
     <div className="rounded-xl border border-red-200 bg-red-50/40 p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-red-800">Zona de perigo</h2>
       <p className="mt-1 text-xs text-red-700/80">
-        Ações destrutivas que afetam toda a clínica.
+        Ações destrutivas que afetam toda a organização.
       </p>
 
       <div className="mt-5 space-y-4">
         <div className="flex items-start justify-between gap-4 rounded-lg border border-red-200 bg-white p-4">
           <div>
             <p className="text-sm font-medium text-gray-900">
-              {isActive ? "Desativar clínica" : "Ativar clínica"}
+              {isActive ? "Desativar organização" : "Ativar organização"}
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
               {isActive
-                ? "Usuários não conseguirão logar nesta clínica, mas os dados ficam preservados."
-                : "A clínica volta a aceitar logins normalmente."}
+                ? "Usuários não conseguirão logar nesta organização, mas os dados ficam preservados."
+                : "A organização volta a aceitar logins normalmente."}
             </p>
           </div>
           <button
@@ -150,8 +150,8 @@ export function ClinicDangerZone({
               Excluir permanentemente
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
-              Apaga a clínica e TODOS os dados associados (usuários, leads,
-              tags, atividades). Ação irreversível.
+              Apaga a organização e TODOS os dados associados (usuários,
+              leads, tags, atividades). Ação irreversível.
             </p>
           </div>
           <button
@@ -174,7 +174,7 @@ export function ClinicDangerZone({
         >
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
             <h3 className="text-lg font-bold text-gray-900">
-              {isActive ? "Desativar clínica" : "Ativar clínica"}
+              {isActive ? "Desativar organização" : "Ativar organização"}
             </h3>
             <p className="mt-2 text-sm text-gray-600">
               Você está prestes a {isActive ? "desativar" : "reativar"}{" "}
@@ -239,8 +239,8 @@ export function ClinicDangerZone({
                 {toggling
                   ? "Confirmando..."
                   : isActive
-                    ? "Desativar clínica"
-                    : "Ativar clínica"}
+                    ? "Desativar organização"
+                    : "Ativar organização"}
               </button>
             </div>
           </div>
@@ -261,7 +261,7 @@ export function ClinicDangerZone({
               Excluir permanentemente
             </h3>
             <p className="mt-2 text-sm text-gray-600">
-              Esta ação vai excluir a clínica <strong>{clinicName}</strong> e{" "}
+              Esta ação vai excluir a organização <strong>{clinicName}</strong> e{" "}
               <strong>todos os dados</strong> associados (usuários, leads, tags,
               atividades, campos personalizados). Não é possível desfazer.
             </p>

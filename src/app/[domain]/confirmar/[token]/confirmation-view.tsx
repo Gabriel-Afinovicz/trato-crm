@@ -65,7 +65,7 @@ export function ConfirmationView({
         </h1>
         <p className="mt-2 text-sm text-gray-600 sm:text-base">
           Este link de confirmação não foi encontrado ou expirou. Entre em
-          contato com a clínica para confirmar sua consulta.
+          contato com a organização para confirmar sua consulta.
         </p>
       </div>
     );
@@ -111,7 +111,7 @@ export function ConfirmationView({
           : status === "reschedule_requested"
             ? "Pedido de reagendamento recebido. A recepção entrará em contato."
             : status === "expired"
-              ? "Este link expirou. Entre em contato com a clínica."
+              ? "Este link expirou. Entre em contato com a organização."
               : "Podemos confirmar sua consulta?"}
       </p>
 
@@ -144,7 +144,7 @@ export function ConfirmationView({
             </p>
             {initial.dentist_name && (
               <p className="mt-1.5 text-sm text-gray-600 sm:text-xs">
-                com Dr(a). {initial.dentist_name}
+                com {initial.dentist_name}
               </p>
             )}
           </div>
@@ -202,7 +202,7 @@ export function ConfirmationView({
       )}
 
       <p className="mt-6 text-center text-xs text-gray-400 sm:text-[11px]">
-        Em caso de dúvidas, fale diretamente com a clínica.
+        Em caso de dúvidas, fale diretamente com a organização.
       </p>
     </div>
   );

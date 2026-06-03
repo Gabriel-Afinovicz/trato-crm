@@ -12,6 +12,23 @@ interface InstanceRow {
   connected_at: string | null;
   // Exposto ao client para que a UI de cooldown sobreviva a F5 / aba nova.
   last_manual_sync_at: string | null;
+  sync_finished_at: string | null;
+}
+
+// Considera sync em andamento se foi iniciado ha menos de 10min e ainda
+// nao gravou termino. Timeout evita lock perpetuo se o handler do sync
+// crashar entre o UPDATE inicial e o finally.
+const SYNC_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
+
+function computeSyncInProgress(row: InstanceRow): boolean {
+  if (!row.last_manual_sync_at) return false;
+  const startedMs = Date.parse(row.last_manual_sync_at);
+  if (!Number.isFinite(startedMs)) return false;
+  if (Date.now() - startedMs > SYNC_PROGRESS_TIMEOUT_MS) return false;
+  if (!row.sync_finished_at) return true;
+  const finishedMs = Date.parse(row.sync_finished_at);
+  if (!Number.isFinite(finishedMs)) return true;
+  return finishedMs < startedMs;
 }
 
 export async function GET(req: NextRequest) {
@@ -42,7 +59,7 @@ export async function GET(req: NextRequest) {
   const { data: row } = await supabase
     .from("whatsapp_instances")
     .select(
-      "id, company_id, instance_name, status, phone_number, connected_at, last_manual_sync_at"
+      "id, company_id, instance_name, status, phone_number, connected_at, last_manual_sync_at, sync_finished_at"
     )
     .eq("company_id", companyRow.id)
     .maybeSingle();
@@ -93,5 +110,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ instance, qrBase64, pairingCode });
+  const syncInProgress = computeSyncInProgress(instance);
+
+  return NextResponse.json({
+    instance,
+    qrBase64,
+    pairingCode,
+    syncInProgress,
+  });
 }

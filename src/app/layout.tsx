@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CRM Odontológico",
-  description: "Sistema de gestão de leads para clínicas odontológicas",
+  title: "CRM",
+  description: "Sistema de gestão de leads para o seu negócio",
 };
 
 // `suppressHydrationWarning` no <body> evita warnings de hidratacao causados
@@ -37,6 +38,18 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         {children}
+        {/* Toaster global do sonner. richColors aplica paleta padrao
+            (success/error/info) e closeButton mostra X em cada toast.
+            position no canto inferior direito para nao competir com a
+            header global no topo. */}
+        <Toaster
+          richColors
+          closeButton
+          position="bottom-right"
+          toastOptions={{
+            duration: 4000,
+          }}
+        />
       </body>
     </html>
   );

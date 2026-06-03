@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { evolution, EvolutionConfigError } from "@/lib/evolution/client";
+import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import { QUICK_REACTION_EMOJIS } from "@/lib/whatsapp/reactions";
 import { mergeReactions, normalizeReactions } from "@/lib/whatsapp/reactions";
 import type { WhatsAppMessageReaction } from "@/lib/types/database";
@@ -85,10 +86,11 @@ export async function POST(
     }
 
     if (!evolution.isConfigured()) {
-      return NextResponse.json(
-        { error: "Evolution API nao configurada no servidor." },
-        { status: 503 }
+      const f = friendlyEvolutionError(
+        { name: "EvolutionConfigError" },
+        "react"
       );
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const supabase = await createClient();
@@ -186,14 +188,9 @@ export async function POST(
         rawEmoji
       );
     } catch (err) {
-      if (err instanceof EvolutionConfigError) {
-        return NextResponse.json({ error: err.message }, { status: 503 });
-      }
-      const message = err instanceof Error ? err.message : "Erro desconhecido";
-      return NextResponse.json(
-        { error: `Falha ao reagir via Evolution: ${message}` },
-        { status: 502 }
-      );
+      console.error("[whatsapp/react] upstream error", err);
+      const f = friendlyEvolutionError(err, "react");
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const incoming: WhatsAppMessageReaction = {

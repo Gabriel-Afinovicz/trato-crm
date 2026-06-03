@@ -96,7 +96,7 @@ export function AvailabilityPanel({
   if (!rows || rows.length === 0) {
     return (
       <p className="text-xs text-gray-500">
-        Nenhum dentista cadastrado.
+        Nenhum profissional cadastrado.
       </p>
     );
   }
@@ -131,7 +131,7 @@ export function AvailabilityPanel({
                 }`}
               />
               <span className="flex-1 truncate text-sm font-medium text-gray-800">
-                Dr(a). {r.dentist_name}
+                {r.dentist_name}
               </span>
               {isOpen ? (
                 <span className="shrink-0 text-xs text-gray-500">

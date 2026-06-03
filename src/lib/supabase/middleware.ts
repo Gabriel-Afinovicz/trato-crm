@@ -105,7 +105,12 @@ export async function updateSession(request: NextRequest) {
 
   const isLoginPage = segments.length === 1;
   const isPublicConfirmation = segments[1] === "confirmar";
-  const isProtectedRoute = segments.length > 1 && !isPublicConfirmation;
+  // Reset de senha via email: pode ser acessada sem sessao autenticada
+  // (o usuario ainda nao logou). A propria pagina troca o codigo da
+  // URL por uma sessao temporaria de recuperacao.
+  const isPublicReset = segments[1] === "redefinir-senha";
+  const isPublic = isPublicConfirmation || isPublicReset;
+  const isProtectedRoute = segments.length > 1 && !isPublic;
 
   // /wosnicz/* → login se não autenticado; cross-tenant é validado no layout.
   if (domain === "wosnicz") {
@@ -123,6 +128,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Se ja existe sessao mas o usuario esta no fluxo de redefinicao
+  // de senha (sessao recovery do Supabase), mantemos na pagina —
+  // redirecionar para o dashboard tiraria o token de troca da URL
+  // antes do componente trocar pela sessao.
   if (isLoginPage && user) {
     const url = request.nextUrl.clone();
     url.pathname = `/${domain}/dashboard`;

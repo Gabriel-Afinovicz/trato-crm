@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { confirm } from "@/components/ui/confirm";
 import { AvailabilityPanel } from "./availability-panel";
 import type {
   AgendaVisibility,
@@ -18,36 +19,35 @@ import type {
   Lead,
   ProcedureType,
   Room,
-  Specialty,
   User,
   UserRoleTag,
 } from "@/lib/types/database";
 
 const AVAILABILITY_MESSAGES: Record<AvailabilityReason, string> = {
   closed:
-    "O dentista n\u00e3o est\u00e1 dispon\u00edvel neste hor\u00e1rio (fora do expediente da cl\u00ednica).",
+    "O profissional n\u00e3o est\u00e1 dispon\u00edvel neste hor\u00e1rio (fora do expediente da organiza\u00e7\u00e3o).",
   lunch:
-    "O hor\u00e1rio escolhido cai durante o intervalo de almo\u00e7o da cl\u00ednica.",
-  holiday: "Esta data \u00e9 feriado da cl\u00ednica.",
+    "O hor\u00e1rio escolhido cai durante o intervalo de almo\u00e7o da organiza\u00e7\u00e3o.",
+  holiday: "Esta data \u00e9 feriado da organiza\u00e7\u00e3o.",
   block:
-    "Este intervalo est\u00e1 bloqueado na agenda (dentista, sala ou bloqueio geral).",
+    "Este intervalo est\u00e1 bloqueado na agenda (profissional, sala ou bloqueio geral).",
   appointment:
-    "J\u00e1 existe outro agendamento para este dentista ou sala neste intervalo.",
+    "J\u00e1 existe outro agendamento para este profissional ou sala neste intervalo.",
 };
 
 const VISIBILITY_LABELS: Record<AgendaVisibility, string> = {
-  assigned_dentist: "Apenas o dentista atribu\u00eddo",
+  assigned_dentist: "Apenas o profissional atribu\u00eddo",
   role_tag: "Por fun\u00e7\u00e3o (tag)",
-  clinic_wide: "Toda a cl\u00ednica",
+  clinic_wide: "Toda a organiza\u00e7\u00e3o",
 };
 
 const VISIBILITY_HELP: Record<AgendaVisibility, string> = {
   assigned_dentist:
-    "Visivel para o dentista escolhido (e admins). Outros dentistas n\u00e3o ver\u00e3o este card.",
+    "Visivel para o profissional escolhido (e admins). Outros profissionais n\u00e3o ver\u00e3o este card.",
   role_tag:
     "Visivel para todos os usu\u00e1rios que tenham a fun\u00e7\u00e3o selecionada (e admins).",
   clinic_wide:
-    "Visivel para todos os usu\u00e1rios da cl\u00ednica (recep\u00e7\u00e3o e dentistas).",
+    "Visivel para todos os usu\u00e1rios da organiza\u00e7\u00e3o (recep\u00e7\u00e3o e profissionais).",
 };
 
 const ROOM_PRESET_COLORS = [
@@ -165,7 +165,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
   const [proceduresList, setProceduresList] = useState<ProcedureType[]>(procedures);
   const [roomsList, setRoomsList] = useState<Room[]>(rooms);
-  const [specialties, setSpecialties] = useState<Specialty[]>([]);
 
   useEffect(() => {
     setProceduresList((prev) => {
@@ -192,7 +191,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
     name: "",
     duration: "30",
     value: "",
-    specialtyId: "",
   });
   const [creatingProcedure, setCreatingProcedure] = useState(false);
 
@@ -202,22 +200,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
     color: ROOM_PRESET_COLORS[0],
   });
   const [creatingRoom, setCreatingRoom] = useState(false);
-
-  useEffect(() => {
-    if (!companyId) return;
-    if (specialties.length > 0) return;
-    if (!showProcedureForm) return;
-    const supabase = createClient();
-    (async () => {
-      const { data } = await supabase
-        .from("specialties")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("is_active", true)
-        .order("name");
-      setSpecialties((data as unknown as Specialty[]) ?? []);
-    })();
-  }, [companyId, showProcedureForm, specialties.length]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -243,7 +225,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
     if (!companyId) return;
     const trimmed = newProcedure.name.trim();
     if (!trimmed) {
-      setError("Informe o nome do procedimento.");
+      setError("Informe o nome do serviço.");
       return;
     }
     const dur = parseInt(newProcedure.duration, 10);
@@ -262,13 +244,12 @@ export function AppointmentModal(props: AppointmentModalProps) {
         name: trimmed,
         default_duration_minutes: dur,
         default_value: value,
-        specialty_id: newProcedure.specialtyId || null,
       })
       .select("*")
       .single();
     setCreatingProcedure(false);
     if (insertErr || !data) {
-      setError(`Erro ao cadastrar procedimento: ${insertErr?.message ?? ""}`);
+      setError(`Erro ao cadastrar serviço: ${insertErr?.message ?? ""}`);
       return;
     }
     const created = data as unknown as ProcedureType;
@@ -278,7 +259,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
     setProcedureId(created.id);
     if (!isEdit) setDuration(created.default_duration_minutes);
     setShowProcedureForm(false);
-    setNewProcedure({ name: "", duration: "30", value: "", specialtyId: "" });
+    setNewProcedure({ name: "", duration: "30", value: "" });
   }
 
   async function handleCreateRoom() {
@@ -408,7 +389,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
       return;
     }
     if (!leadId) {
-      setError("Selecione um paciente.");
+      setError("Selecione um lead.");
       return;
     }
     if (!startsAt) {
@@ -418,7 +399,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
     if (visibility === "assigned_dentist" && !dentistId) {
       setError(
-        "Para visibilidade \u201cApenas o dentista atribu\u00eddo\u201d \u00e9 preciso selecionar um dentista, ou troque para \u201cToda a cl\u00ednica\u201d."
+        "Para visibilidade \u201cApenas o profissional atribu\u00eddo\u201d \u00e9 preciso selecionar um profissional, ou troque para \u201cToda a organiza\u00e7\u00e3o\u201d."
       );
       return;
     }
@@ -506,8 +487,13 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
   async function handleDelete() {
     if (!isEdit) return;
-    if (!confirm("Excluir este agendamento? Essa ação não pode ser desfeita."))
-      return;
+    const ok = await confirm({
+      title: "Excluir este agendamento?",
+      description: "Esta acao nao pode ser desfeita.",
+      confirmLabel: "Excluir agendamento",
+      variant: "danger",
+    });
+    if (!ok) return;
     setDeleting(true);
     const supabase = createClient();
     const { error: deleteErr } = await supabase
@@ -544,8 +530,8 @@ export function AppointmentModal(props: AppointmentModalProps) {
               {isEdit ? "Editar consulta" : "Agendar consulta"}
             </h3>
             <p className="text-xs text-gray-500">
-              O sistema bloqueia conflitos de dentista, sala e bloqueios da
-              agenda no mesmo horário.
+              O sistema bloqueia conflitos de profissional, sala e bloqueios
+              da agenda no mesmo horário.
             </p>
           </div>
           <button
@@ -574,7 +560,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
           {!lockedLead ? (
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                Paciente *
+                Lead *
               </label>
               <input
                 type="text"
@@ -583,7 +569,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   setLeadSearch(e.target.value);
                   setLeadId("");
                 }}
-                placeholder="Buscar paciente..."
+                placeholder="Buscar lead..."
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               {leadOptions.length > 0 && !leadId && (
@@ -612,7 +598,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
             </div>
           ) : (
             <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              Paciente:{" "}
+              Lead:{" "}
               <span className="font-medium text-gray-900">{leadName}</span>
             </div>
           )}
@@ -649,7 +635,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                Dentista
+                Profissional
               </label>
               <select
                 value={dentistId}
@@ -664,10 +650,10 @@ export function AppointmentModal(props: AppointmentModalProps) {
                 }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               >
-                <option value="">Sem dentista</option>
+                <option value="">Sem profissional</option>
                 {dentists.map((d) => (
                   <option key={d.id} value={d.id}>
-                    Dr(a). {d.name}
+                    {d.name}
                   </option>
                 ))}
               </select>
@@ -750,7 +736,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-700">
-              Procedimento
+              Serviço
             </label>
             <select
               value={procedureId}
@@ -763,19 +749,19 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   {p.name} · {p.default_duration_minutes}min
                 </option>
               ))}
-              <option value="__create__">+ Cadastrar novo procedimento</option>
+              <option value="__create__">+ Cadastrar novo serviço</option>
             </select>
           </div>
 
           {showProcedureForm && (
             <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
               <p className="mb-2 text-xs font-medium text-gray-700">
-                Novo procedimento
+                Novo serviço
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <input
                   type="text"
-                  placeholder="Nome do procedimento"
+                  placeholder="Nome do serviço"
                   value={newProcedure.name}
                   onChange={(e) =>
                     setNewProcedure((p) => ({ ...p, name: e.target.value }))
@@ -803,23 +789,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   }
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm"
                 />
-                <select
-                  value={newProcedure.specialtyId}
-                  onChange={(e) =>
-                    setNewProcedure((p) => ({
-                      ...p,
-                      specialtyId: e.target.value,
-                    }))
-                  }
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-                >
-                  <option value="">Especialidade (opcional)</option>
-                  {specialties.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="mt-2 flex justify-end gap-2">
                 <button
@@ -830,7 +799,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
                       name: "",
                       duration: "30",
                       value: "",
-                      specialtyId: "",
                     });
                   }}
                   className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600"
@@ -843,7 +811,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   disabled={creatingProcedure || !newProcedure.name.trim()}
                   className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
                 >
-                  {creatingProcedure ? "Salvando..." : "Salvar procedimento"}
+                  {creatingProcedure ? "Salvando..." : "Salvar serviço"}
                 </button>
               </div>
             </div>
@@ -909,7 +877,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   {tags.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
-                      {t.marks_as_dentist ? " · dentista" : ""}
+                      {t.marks_as_dentist ? " · profissional" : ""}
                     </option>
                   ))}
                 </select>
@@ -926,7 +894,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
             <details className="group rounded-lg border border-gray-200 bg-white">
               <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-gray-700">
                 <span>
-                  Disponibilidade dos dentistas{" "}
+                  Disponibilidade dos profissionais{" "}
                   <span className="text-gray-400">
                     · {startsAt ? startsAt.slice(0, 10) : "—"}
                   </span>

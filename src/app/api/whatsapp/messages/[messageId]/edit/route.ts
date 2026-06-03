@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { evolution, EvolutionConfigError } from "@/lib/evolution/client";
+import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import { jidToPhone } from "@/lib/evolution/phone";
 
 interface EditPayload {
@@ -115,10 +116,11 @@ export async function PATCH(
     }
 
     if (!evolution.isConfigured()) {
-      return NextResponse.json(
-        { error: "Evolution API nao configurada no servidor." },
-        { status: 503 }
+      const f = friendlyEvolutionError(
+        { name: "EvolutionConfigError" },
+        "edit"
       );
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const supabase = await createClient();
@@ -261,14 +263,9 @@ export async function PATCH(
         },
       });
     } catch (err) {
-      if (err instanceof EvolutionConfigError) {
-        return NextResponse.json({ error: err.message }, { status: 503 });
-      }
-      const message = err instanceof Error ? err.message : "Erro desconhecido";
-      return NextResponse.json(
-        { error: `Falha ao editar via Evolution: ${message}` },
-        { status: 502 }
-      );
+      console.error("[whatsapp/edit] upstream error", err);
+      const f = friendlyEvolutionError(err, "edit");
+      return NextResponse.json({ error: f.message }, { status: f.status });
     }
 
     const editedAtIso = new Date().toISOString();

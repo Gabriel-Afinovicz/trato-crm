@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { evolution } from "@/lib/evolution/client";
+import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 import { jidToPhone } from "@/lib/evolution/phone";
 import type { WhatsAppMessageMediaType } from "@/lib/types/database";
 
@@ -246,18 +247,15 @@ export async function POST(req: NextRequest) {
     );
     evoMessageId = sendRes.key?.id ?? null;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    console.error("[send-media] evolution.sendMedia failed:", {
+    console.error("[whatsapp/send-media] upstream error", {
       instance: instanceRow.instance_name,
       remoteJid: chatRow.remote_jid,
       mediaType,
       fileSize: file.size,
-      error: message,
+      err,
     });
-    return NextResponse.json(
-      { error: `Falha ao enviar midia via Evolution: ${message}` },
-      { status: 502 }
-    );
+    const f = friendlyEvolutionError(err, "send_media");
+    return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
   const sentAt = new Date().toISOString();

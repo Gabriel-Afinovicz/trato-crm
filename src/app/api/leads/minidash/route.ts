@@ -33,6 +33,11 @@ export async function GET(req: NextRequest) {
 
   const startParam = searchParams.get("start");
   const endParam = searchParams.get("end");
+  const sectorParam = searchParams.get("sector");
+  // "none" reservado para futuro (cohort de leads sem setor); por ora
+  // tratamos como nao filtrar. Filtragem efetiva so para uuids reais.
+  const sectorId =
+    sectorParam && sectorParam !== "none" ? sectorParam : null;
 
   let range: { start: Date; end: Date };
   if (startParam && endParam) {
@@ -55,7 +60,7 @@ export async function GET(req: NextRequest) {
     range = defaultMonthRange();
   }
 
-  const minidash = await getKanbanMinidash(companyId, range);
+  const minidash = await getKanbanMinidash(companyId, range, sectorId);
   return NextResponse.json({
     minidash,
     range: { start: range.start.toISOString(), end: range.end.toISOString() },

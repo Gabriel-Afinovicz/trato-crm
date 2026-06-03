@@ -232,6 +232,44 @@ export const evolution = {
     );
   },
 
+  /**
+   * Desconecta e remove uma instancia da Evolution, lidando com as
+   * peculiaridades da v2.3.x: `logout` frequentemente retorna HTTP 500
+   * mesmo quando funciona (bug de serializacao da resposta), e `delete`
+   * exige o estado `close` antes de aceitar a chamada. Faz polling do
+   * `connectionState` ate `close` (timeout curto) antes do delete e
+   * trata todos os erros como best-effort — quem chama nao precisa se
+   * preocupar com retorno: na pior das hipoteses a instancia ainda fica
+   * orfa no servidor Evolution, mas o caller pode prosseguir.
+   */
+  async resetInstance(instanceName: string): Promise<void> {
+    try {
+      await this.logout(instanceName);
+    } catch {
+      // 500 ainda fecha a sessao na pratica (bug conhecido)
+    }
+
+    const deadline = Date.now() + 6_000;
+    while (Date.now() < deadline) {
+      try {
+        const s = await this.getConnectionState(instanceName);
+        const state = s.instance?.state ?? null;
+        if (state === "close" || state === "connecting" || state === null) {
+          break;
+        }
+      } catch {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    try {
+      await this.deleteInstance(instanceName);
+    } catch {
+      // instancia ja pode nao existir mais
+    }
+  },
+
   async sendText(
     instanceName: string,
     jid: string,

@@ -2,11 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 interface SidebarProps {
   domain: string;
   showSettings: boolean;
+  /**
+   * Controle do drawer em mobile. Quando true, a sidebar aparece como
+   * overlay; em desktop a prop e ignorada e a sidebar fica sempre visivel.
+   */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 interface SubNavItem {
@@ -69,20 +75,20 @@ const baseNavItems: NavItem[] = [
     ),
   },
   {
-    label: "Conversas",
-    href: "/conversas",
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
-      </svg>
-    ),
-  },
-  {
     label: "Agenda",
     href: "/agenda",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+      </svg>
+    ),
+  },
+  {
+    label: "Conversas",
+    href: "/conversas",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
       </svg>
     ),
   },
@@ -101,12 +107,62 @@ const settingsNavItem: NavItem = {
 
 const COLLAPSE_STORAGE_KEY = "crm.sidebar.collapsed";
 
-export function Sidebar({ domain, showSettings }: SidebarProps) {
+export function Sidebar({
+  domain,
+  showSettings,
+  mobileOpen = false,
+  onMobileClose,
+}: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const navItems = showSettings
     ? [...baseNavItems, settingsNavItem]
     : baseNavItems;
+
+  // Quantidade de leads criados nas ultimas 24h — alimenta o badge no
+  // item "Leads". Atualizado em multiplas situacoes:
+  //  - mount inicial;
+  //  - polling de 60s (cobre o caso de outro operador criar um lead);
+  //  - mudanca de rota (navegar entre telas mantem o badge fresco);
+  //  - volta de foco da aba do navegador;
+  //  - evento custom `crm:lead-created` disparado pelo lead-form ao salvar.
+  // Sem o ultimo, o usuario que acabou de cadastrar um lead esperava ate
+  // 60s para ver o badge surgir — fluxo confuso.
+  const [newLeadsCount, setNewLeadsCount] = useState<number>(0);
+  const refetchNewLeads = useCallback(async () => {
+    try {
+      const res = await fetch("/api/leads/new-count", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { count?: number };
+      if (typeof data.count === "number") setNewLeadsCount(data.count);
+    } catch {
+      /* silencioso — badge apenas desaparece */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetchNewLeads();
+    const id = window.setInterval(refetchNewLeads, 60_000);
+    function onFocus() {
+      void refetchNewLeads();
+    }
+    function onLeadCreated() {
+      void refetchNewLeads();
+    }
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("crm:lead-created", onLeadCreated);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("crm:lead-created", onLeadCreated);
+    };
+  }, [refetchNewLeads]);
+
+  // Refetch tambem ao trocar de rota — garante badge fresco quando o
+  // usuario volta de /leads (visualizando os recentes) para outra tela.
+  useEffect(() => {
+    void refetchNewLeads();
+  }, [pathname, refetchNewLeads]);
 
   // O Dashboard troca de aba via `history.replaceState` (sem fetch RSC)
   // para evitar piscadas. Como `useSearchParams` só reage a navegações
@@ -158,20 +214,39 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
   }, [isOnDashboard]);
 
   return (
-    <aside
-      className={`relative flex h-full flex-col border-r border-gray-200 bg-white transition-[width] duration-200 ${
-        collapsed ? "w-14" : "w-60"
-      }`}
-    >
+    <>
+      {/* Overlay clicavel para fechar o drawer em mobile. Renderizado
+          apenas quando mobileOpen=true. No desktop nunca aparece (md:hidden). */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          aria-hidden="true"
+          onClick={onMobileClose}
+        />
+      )}
+      <aside
+        className={[
+          // Desktop: sidebar estatica, controlada por `collapsed`.
+          // Mobile (<md): vira drawer fixed que desliza pela esquerda.
+          "flex h-full flex-col border-r border-gray-200 bg-white",
+          "transition-[width,transform] duration-200",
+          collapsed ? "md:w-14" : "md:w-60",
+          // No mobile o drawer tem largura fixa amigavel ao polegar
+          // e usa transform para abrir/fechar.
+          "fixed inset-y-0 left-0 z-40 w-64",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          "md:relative md:translate-x-0",
+        ].join(" ")}
+      >
       {/* Botão de minimizar/expandir — flutua na borda direita, na
           altura do header. Aparece sempre, com a seta apontando para
-          o lado oposto ao estado atual. */}
+          o lado oposto ao estado atual. Escondido em mobile (drawer). */}
       <button
         type="button"
         onClick={() => setCollapsedPersisted(!collapsed)}
         aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
         title={collapsed ? "Expandir menu" : "Recolher menu"}
-        className="absolute -right-3 top-4 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700"
+        className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700 md:inline-flex"
       >
         <svg
           className={`h-3.5 w-3.5 transition-transform ${collapsed ? "rotate-180" : ""}`}
@@ -190,7 +265,7 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
         </div>
         {!collapsed && (
           <span className="truncate text-sm font-semibold text-gray-900">
-            CRM Odonto
+            CRM
           </span>
         )}
       </div>
@@ -218,6 +293,7 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
                 >
                   <Link
                     href={`${fullHref}?tab=${item.children[0].tab}`}
+                    onClick={onMobileClose}
                     className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       isActiveOnDashboard
                         ? ""
@@ -259,6 +335,7 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
                         <Link
                           key={sub.tab}
                           href={`${fullHref}?tab=${sub.tab}`}
+                          onClick={onMobileClose}
                           className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
                             isSubActive
                               ? "bg-blue-50 text-blue-700"
@@ -284,6 +361,7 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
                 key={item.href}
                 href={`${fullHref}?tab=${item.children[0].tab}`}
                 title={item.label}
+                onClick={onMobileClose}
                 className={`flex items-center justify-center rounded-lg p-2 transition-colors ${
                   isActiveOnDashboard
                     ? "bg-blue-50 text-blue-700"
@@ -295,12 +373,19 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
             );
           }
 
-          // Item simples.
+          // Item simples. Mostra badge de novos leads (ultimas 24h)
+          // quando aplicavel — so no item Leads e somente se count > 0.
+          const showLeadsBadge =
+            item.href === "/leads" && newLeadsCount > 0;
+          const badgeLabel =
+            newLeadsCount > 99 ? "99+" : String(newLeadsCount);
+
           return (
             <Link
               key={item.href}
               href={fullHref}
               title={collapsed ? item.label : undefined}
+              onClick={onMobileClose}
               className={`flex items-center gap-3 rounded-lg ${
                 collapsed ? "justify-center p-2" : "px-3 py-2"
               } text-sm font-medium transition-colors ${
@@ -309,8 +394,37 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
               }`}
             >
-              {item.icon}
-              {!collapsed && item.label}
+              <span className="relative inline-flex">
+                {item.icon}
+                {showLeadsBadge && collapsed && (
+                  // Modo colapsado: numero pequeno sobre o icone, na cor
+                  // herdada do link (text-blue-700 quando ativo, text-gray-600
+                  // quando inativo). Sem fundo nem borda — so o numero.
+                  <span
+                    aria-label={`${newLeadsCount} leads novos nas ultimas 24h`}
+                    className="absolute -right-2 -top-1.5 text-[10px] font-semibold leading-none"
+                  >
+                    {badgeLabel}
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <span className="flex flex-1 items-center justify-between gap-2">
+                  <span>{item.label}</span>
+                  {showLeadsBadge && (
+                    // Modo expandido: apenas o numero, sem pill, herdando
+                    // a cor do texto do item (azul quando ativo, cinza
+                    // quando inativo).
+                    <span
+                      aria-label={`${newLeadsCount} leads novos nas ultimas 24h`}
+                      title="Leads criados nas ultimas 24h"
+                      className="text-xs font-semibold tabular-nums"
+                    >
+                      {badgeLabel}
+                    </span>
+                  )}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -321,6 +435,7 @@ export function Sidebar({ domain, showSettings }: SidebarProps) {
           <p className="truncate text-xs text-gray-400">{domain}</p>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }

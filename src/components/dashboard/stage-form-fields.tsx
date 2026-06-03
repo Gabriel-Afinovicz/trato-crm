@@ -1,6 +1,7 @@
 "use client";
 
 import { PIPELINE_STAGE_COLORS } from "@/lib/pipeline-stage-colors";
+import { HelpIcon } from "@/components/ui/help-icon";
 import {
   STAGE_CATEGORIES,
   STAGE_CATEGORY_LABEL,
@@ -101,6 +102,12 @@ export function StageFormFields({
       <div>
         <label className="mb-1.5 block text-xs font-medium text-gray-600">
           Categoria (mini-dash)
+          <HelpIcon>
+            Agrupa esta etapa nos indicadores da mini-dash do Kanban e nos
+            KPIs do Analitico (quente, frio, agendado, compareceu,
+            fechado). Sem categoria, a etapa aparece no Kanban mas nao
+            entra nos KPIs.
+          </HelpIcon>
         </label>
         <select
           value={values.category ?? ""}

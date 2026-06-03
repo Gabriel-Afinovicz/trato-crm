@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
 
   if (existing) {
     return NextResponse.json(
-      { error: "Já existe uma clínica com esse domínio." },
+      { error: "Já existe uma organização com esse domínio." },
       { status: 409 }
     );
   }
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   if (insertError || !created) {
     return NextResponse.json(
-      { error: `Erro ao criar clínica: ${insertError?.message ?? "desconhecido"}` },
+      { error: `Erro ao criar organização: ${insertError?.message ?? "desconhecido"}` },
       { status: 500 }
     );
   }

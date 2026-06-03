@@ -19,7 +19,7 @@ export default function WosniczLoginPage() {
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-500">
-          CRM Odontológico · Wosnicz
+          CRM · Wosnicz
         </p>
       </div>
     </div>

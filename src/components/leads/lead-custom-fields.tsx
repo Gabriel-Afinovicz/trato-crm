@@ -1,11 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { useAuth } from "@/hooks/use-auth";
 import { AddCustomFieldForm } from "@/components/settings/add-custom-field-form";
+import { confirm } from "@/components/ui/confirm";
 import type { CustomField, CustomFieldValue } from "@/lib/types/database";
+
+// Helper para adicionar opcao inline em select. Restrito a admins via API.
+async function appendCustomFieldOption(
+  fieldId: string,
+  option: string
+): Promise<string[] | null> {
+  const res = await fetch(`/api/custom-fields/${fieldId}/options`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ option }),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? "Erro ao adicionar opcao");
+  }
+  const data = (await res.json()) as { options?: string[] };
+  return data.options ?? null;
+}
 
 interface LeadCustomFieldsProps {
   leadId: string;
@@ -93,9 +113,13 @@ export function LeadCustomFields({
 
   async function handleDeleteField(fieldId: string, fieldName: string) {
     if (!companyId) return;
-    const confirmed = window.confirm(
-      `Excluir o campo "${fieldName}"? Todos os valores preenchidos para este campo serão removidos.`
-    );
+    const confirmed = await confirm({
+      title: `Excluir o campo "${fieldName}"?`,
+      description:
+        "Todos os valores preenchidos para este campo serao removidos. Esta acao nao pode ser desfeita.",
+      confirmLabel: "Excluir campo",
+      variant: "danger",
+    });
     if (!confirmed) return;
 
     const supabase = createClient();
@@ -105,7 +129,7 @@ export function LeadCustomFields({
       .eq("id", fieldId);
 
     if (error) {
-      window.alert(`Erro ao excluir: ${error.message}`);
+      toast.error("Erro ao excluir o campo", { description: error.message });
       return;
     }
 
@@ -320,6 +344,10 @@ export function CustomFieldRenderer({
   onChange: (val: string) => void;
   hasError?: boolean;
 }) {
+  const { profile } = useAuth();
+  const canAddOptions =
+    profile?.role === "admin" || profile?.role === "super_admin";
+
   const baseInputClass =
     "w-full rounded-lg border px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2";
   const inputClass = `${baseInputClass} ${
@@ -328,7 +356,38 @@ export function CustomFieldRenderer({
       : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/20"
   }`;
 
-  const options: string[] = Array.isArray(field.options) ? field.options : [];
+  const initialOptions: string[] = Array.isArray(field.options)
+    ? (field.options as string[])
+    : [];
+  // `options` precisa de estado local porque o admin pode adicionar
+  // novas opcoes inline. Resync quando o field.options muda externamente.
+  const [options, setOptions] = useState<string[]>(initialOptions);
+  useEffect(() => {
+    setOptions(initialOptions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [field.id, JSON.stringify(initialOptions)]);
+
+  const [addingOption, setAddingOption] = useState(false);
+  const [newOption, setNewOption] = useState("");
+
+  async function handleAddOption() {
+    const trimmed = newOption.trim();
+    if (!trimmed) return;
+    try {
+      const next = await appendCustomFieldOption(field.id, trimmed);
+      if (next) setOptions(next);
+      setNewOption("");
+      setAddingOption(false);
+      // Seleciona automaticamente a opcao recem-criada para fluxo natural.
+      if (field.field_type === "select") {
+        onChange(trimmed);
+      }
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : "Erro ao adicionar opcao."
+      );
+    }
+  }
 
   switch (field.field_type) {
     case "text":
@@ -402,16 +461,73 @@ export function CustomFieldRenderer({
           <label className="mb-1 block text-sm text-gray-600">
             {field.name}{field.is_required && <span className="text-red-500"> *</span>}
           </label>
-          <select
-            className={inputClass}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-          >
-            <option value="">Selecione...</option>
-            {options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+          <div className="flex gap-2">
+            <select
+              className={`${inputClass} flex-1`}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={options.length === 0}
+            >
+              <option value="">Selecione...</option>
+              {options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            {canAddOptions && !addingOption && (
+              <button
+                type="button"
+                onClick={() => setAddingOption(true)}
+                className="rounded-lg border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                title="Adicionar nova opcao"
+              >
+                + Nova
+              </button>
+            )}
+          </div>
+          {!canAddOptions && options.length === 0 && (
+            <p className="mt-1 text-[11px] text-gray-500">
+              Sem opcoes. Peca ao admin para cadastrar.
+            </p>
+          )}
+          {addingOption && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                autoFocus
+                type="text"
+                value={newOption}
+                onChange={(e) => setNewOption(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddOption();
+                  } else if (e.key === "Escape") {
+                    setAddingOption(false);
+                    setNewOption("");
+                  }
+                }}
+                placeholder="Ex: Aparelho"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+              <button
+                type="button"
+                onClick={handleAddOption}
+                disabled={!newOption.trim()}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Adicionar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingOption(false);
+                  setNewOption("");
+                }}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
         </div>
       );
 

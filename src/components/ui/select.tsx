@@ -1,4 +1,5 @@
 import { type SelectHTMLAttributes, forwardRef } from "react";
+import { HelpIcon } from "./help-icon";
 
 interface SelectOption {
   value: string;
@@ -7,13 +8,18 @@ interface SelectOption {
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
+  /** Quando preenchido, mostra um icone "?" ao lado do label com a explicacao. */
+  tooltip?: string;
   error?: string;
   options: SelectOption[];
   placeholder?: string;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, placeholder, className = "", id, ...props }, ref) => {
+  (
+    { label, tooltip, error, options, placeholder, className = "", id, ...props },
+    ref
+  ) => {
     const selectId = id || label?.toLowerCase().replace(/\s/g, "-");
 
     return (
@@ -24,6 +30,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             className="block text-sm font-medium text-gray-700"
           >
             {label}
+            {tooltip && <HelpIcon>{tooltip}</HelpIcon>}
           </label>
         )}
         <select

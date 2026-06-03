@@ -6,7 +6,19 @@ import {
   type LeadListFilters,
 } from "@/lib/supabase/leads-data";
 import { createClient } from "@/lib/supabase/server";
+import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import { STAGE_CATEGORIES, type StageCategory } from "@/lib/types/database";
+import { syncLeadCreated } from "@/lib/integrations/clinicorp-service";
+
+// Body do POST /api/leads. Quando `appointment` esta presente, a criacao
+// vira atomica via RPC `create_lead_with_appointment`. Sem appointment,
+// o handler cai no caminho "insert simples" (preservando custom_field_values).
+interface CreateLeadPayload {
+  companyId?: string;
+  lead?: Record<string, unknown> & { name?: string };
+  appointment?: Record<string, unknown> | null;
+  custom_field_values?: { custom_field_id: string; value: string }[];
+}
 
 /**
  * Listagem paginada de leads para Kanban (uma página por coluna) e
@@ -86,14 +98,14 @@ export async function GET(req: NextRequest) {
     assigneeId = assigneeParam;
   }
 
-  const specialtyParam = searchParams.get("specialty");
-  let specialtyMode: LeadListFilters["specialtyMode"] = "any";
-  let specialtyId: string | undefined;
-  if (specialtyParam === "none") {
-    specialtyMode = "none";
-  } else if (specialtyParam) {
-    specialtyMode = "specific";
-    specialtyId = specialtyParam;
+  const sectorParam = searchParams.get("sector");
+  let sectorMode: LeadListFilters["sectorMode"] = "any";
+  let sectorId: string | undefined;
+  if (sectorParam === "none") {
+    sectorMode = "none";
+  } else if (sectorParam) {
+    sectorMode = "specific";
+    sectorId = sectorParam;
   }
 
   const sourceId = searchParams.get("sourceId") ?? undefined;
@@ -141,8 +153,8 @@ export async function GET(req: NextRequest) {
       q,
       assigneeMode,
       assigneeId,
-      specialtyMode,
-      specialtyId,
+      sectorMode,
+      sectorId,
       sourceId,
       tagIds,
       page,
@@ -159,4 +171,111 @@ export async function GET(req: NextRequest) {
     pageSize: result.pageSize,
     range: { start: range.start.toISOString(), end: range.end.toISOString() },
   });
+}
+
+export async function POST(req: NextRequest) {
+  const { user, profile, role } = await getAuthSession();
+  if (!user || !profile) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+
+  let body: CreateLeadPayload;
+  try {
+    body = (await req.json()) as CreateLeadPayload;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const companyId = body.companyId;
+  if (!companyId) {
+    return NextResponse.json(
+      { error: "companyId required" },
+      { status: 400 }
+    );
+  }
+  if (role !== "super_admin" && profile.company_id !== companyId) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const lead = body.lead;
+  if (!lead || typeof lead.name !== "string" || !lead.name.trim()) {
+    return NextResponse.json(
+      { error: "lead.name required" },
+      { status: 400 }
+    );
+  }
+
+  // Encaminha tudo para a RPC transacional. Mesmo no caso "lead sem
+  // agendamento" usamos a RPC: ela trata appointment nulo, valida e
+  // persiste custom_field_values em batch — evita lead criado sem os
+  // valores se algo falhar no client.
+  const supabase = await createClient();
+  const payload = {
+    lead,
+    appointment: body.appointment ?? null,
+    custom_field_values: Array.isArray(body.custom_field_values)
+      ? body.custom_field_values.filter(
+          (v) =>
+            v &&
+            typeof v.custom_field_id === "string" &&
+            typeof v.value === "string"
+        )
+      : [],
+  };
+
+  const { data, error } = await supabase.rpc("create_lead_with_appointment", {
+    p_payload: payload,
+  });
+
+  if (error) {
+    const msg = error.message ?? "";
+    // O HINT carrega marcadores estaveis ('no_agendado_stage',
+    // 'availability_closed', etc.); o MESSAGE pode mudar e e usado
+    // apenas como fallback.
+    const hint = (error as { hint?: string | null }).hint ?? "";
+
+    // Erros de negocio com mensagem ja amigavel (mantidos como estao —
+    // o usuario precisa de instrucoes especificas para resolver).
+    if (msg.includes("nenhum pipeline_stage ativo")) {
+      return NextResponse.json(
+        {
+          error:
+            "Nenhuma etapa de pipeline configurada. Carregue um template em Configuracoes > Pipeline (ou crie etapas manualmente) antes de criar um lead.",
+        },
+        { status: 409 }
+      );
+    }
+    if (hint === "no_agendado_stage" || msg.includes("no_agendado_stage")) {
+      return NextResponse.json(
+        {
+          error:
+            "Nenhuma etapa do pipeline esta categorizada como 'agendado'. Configure em Pipeline antes de agendar.",
+        },
+        { status: 409 }
+      );
+    }
+    if (hint.startsWith("availability_") || msg.startsWith("availability_")) {
+      const source = hint.startsWith("availability_") ? hint : msg;
+      const reason = source.replace("availability_", "");
+      return NextResponse.json(
+        { error: "AVAILABILITY", reason },
+        { status: 409 }
+      );
+    }
+
+    // Erros genericos de banco/RLS — log interno + mensagem neutra.
+    console.error("[POST /api/leads] db/rpc error", error);
+    const f = friendlyDbError(error, "save_lead");
+    return NextResponse.json({ error: f.message }, { status: f.status });
+  }
+
+  // Efeito colateral de integracao (fire-and-forget): envia o lead recem
+  // criado para a Clinicorp se a integracao estiver ativa e a fonte tiver
+  // campanha mapeada. NUNCA bloqueia nem reverte a criacao do lead.
+  const newLeadId = (data as { lead_id?: string } | null)?.lead_id;
+  if (newLeadId) {
+    syncLeadCreated(companyId, newLeadId);
+  }
+
+  return NextResponse.json(data);
 }

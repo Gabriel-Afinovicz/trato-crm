@@ -13,12 +13,12 @@ export function ClinicsTable({ clinics }: ClinicsTableProps) {
   if (realClinics.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-gray-300 bg-white p-12 text-center">
-        <p className="text-gray-500">Nenhuma clínica cadastrada ainda.</p>
+        <p className="text-gray-500">Nenhuma organização cadastrada ainda.</p>
         <Link
           href="/wosnicz/clinicas/nova"
           className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
         >
-          Cadastrar primeira clínica
+          Cadastrar primeira organização
         </Link>
       </div>
     );
@@ -29,7 +29,7 @@ export function ClinicsTable({ clinics }: ClinicsTableProps) {
       <table className="w-full">
         <thead className="bg-gray-50">
           <tr>
-            <Th>Clínica</Th>
+            <Th>Organização</Th>
             <Th>Domínio</Th>
             <Th>Usuários</Th>
             <Th>Leads</Th>
@@ -44,7 +44,7 @@ export function ClinicsTable({ clinics }: ClinicsTableProps) {
                 <p className="text-sm font-medium text-gray-900">{clinic.name}</p>
                 {clinic.createdAt && (
                   <p className="text-xs text-gray-400">
-                    Criada em{" "}
+                    Criado em{" "}
                     {new Date(clinic.createdAt).toLocaleDateString("pt-BR")}
                   </p>
                 )}
@@ -64,12 +64,12 @@ export function ClinicsTable({ clinics }: ClinicsTableProps) {
                 {clinic.isActive ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    Ativa
+                    Ativo
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                     <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-                    Inativa
+                    Inativo
                   </span>
                 )}
               </td>

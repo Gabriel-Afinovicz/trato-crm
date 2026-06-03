@@ -16,6 +16,7 @@ import {
 import type {
   AnaliticoKpis,
   ClinicAnalyticsGoals,
+  Sector,
 } from "@/lib/types/database";
 
 /**
@@ -140,6 +141,8 @@ export function AnaliticoPanel({
   const [goals, setGoals] = useState<ClinicAnalyticsGoals>(initialGoals);
   const [isDefaultGoals, setIsDefaultGoals] = useState(initialIsDefaultGoals);
   const [showRangePicker, setShowRangePicker] = useState(false);
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  const [sectorId, setSectorId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   // Carimbo do último fetch bem-sucedido de KPIs. Inicia com `null`
   // para evitar mismatch SSR/CSR — é populado no `useEffect` inicial
@@ -179,7 +182,10 @@ export function AnaliticoPanel({
 
   /** Buscador genérico — usado tanto para refetch manual quanto ao trocar o range. */
   const fetchKpis = useCallback(
-    async (targetRange: { start: string; end: string }) => {
+    async (
+      targetRange: { start: string; end: string },
+      targetSector: string | null
+    ) => {
       if (!companyId) return;
       try {
         const url = new URL(
@@ -189,6 +195,9 @@ export function AnaliticoPanel({
         url.searchParams.set("companyId", companyId);
         url.searchParams.set("start", targetRange.start);
         url.searchParams.set("end", targetRange.end);
+        if (targetSector) {
+          url.searchParams.set("sector", targetSector);
+        }
         const res = await fetch(url.toString(), { cache: "no-store" });
         if (res.ok) {
           const data = (await res.json()) as { kpis: AnaliticoKpis };
@@ -202,6 +211,31 @@ export function AnaliticoPanel({
     [companyId]
   );
 
+  // Carrega setores ativos para popular o filtro.
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    fetch(`/api/sectors?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { items?: Sector[] } | null) => {
+        if (!cancelled && data?.items) setSectors(data.items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  // Refetch ao mudar o setor selecionado.
+  useEffect(() => {
+    if (!companyId) return;
+    startTransition(() => {
+      void fetchKpis(range, sectorId);
+    });
+    // intencional: não dependemos de `range` aqui — `applyRange` já refetcha.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectorId]);
+
   // Marca a primeira renderização como "atualização inicial" — assim o
   // usuário vê "há 0s" desde o momento em que abre a aba, em vez de um
   // estado vazio ambíguo.
@@ -213,13 +247,13 @@ export function AnaliticoPanel({
     const newRange = { start: start.toISOString(), end: end.toISOString() };
     setRange(newRange);
     startTransition(() => {
-      void fetchKpis(newRange);
+      void fetchKpis(newRange, sectorId);
     });
   }
 
   function refreshNow() {
     startTransition(() => {
-      void fetchKpis(range);
+      void fetchKpis(range, sectorId);
     });
   }
 
@@ -249,6 +283,21 @@ export function AnaliticoPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {sectors.length > 0 && (
+            <select
+              value={sectorId ?? ""}
+              onChange={(e) => setSectorId(e.target.value || null)}
+              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none"
+              title="Filtrar por setor"
+            >
+              <option value="">Todos setores</option>
+              {sectors.map((sec) => (
+                <option key={sec.id} value={sec.id}>
+                  {sec.name}
+                </option>
+              ))}
+            </select>
+          )}
           {/* Carimbo da última atualização — mostra horário absoluto e
               tempo relativo (atualizado a cada segundo). */}
           {lastUpdatedAt && (
@@ -322,7 +371,7 @@ export function AnaliticoPanel({
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
           </svg>
           <p>
-            Sua clínica ainda não definiu metas analíticas — estamos
+            Sua organização ainda não definiu metas analíticas — estamos
             usando os padrões 40 / 40 / 30.{" "}
             <Link
               href={`/${domain}/settings?tab=analytics-goals`}
@@ -331,6 +380,70 @@ export function AnaliticoPanel({
               Configurar agora
             </Link>
           </p>
+        </div>
+      )}
+
+      {/* Empty state quando o periodo selecionado nao tem nenhum lead.
+          Evita que o gestor interprete a sequencia de zeros como
+          performance ruim — quase sempre e so filtro de periodo ou
+          organizacao recem-criada. */}
+      {kpis.total_leads === 0 && domain && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/60 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.8}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"
+                />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-blue-900">
+                Nenhum lead no periodo {formatRangeLabel(range.start, range.end)}
+              </p>
+              <p className="mt-1 text-xs text-blue-800/90">
+                Os indicadores ficam zerados ate o primeiro lead. Tente um
+                periodo maior ou cadastre um lead para comecar a medir o
+                funil.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href={`/${domain}/leads/new`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  <svg
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 4.5v15m7.5-7.5h-15"
+                    />
+                  </svg>
+                  Cadastrar primeiro lead
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowRangePicker(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-50"
+                >
+                  Alterar periodo
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
