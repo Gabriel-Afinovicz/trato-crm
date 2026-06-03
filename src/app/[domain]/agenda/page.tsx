@@ -47,6 +47,20 @@ function startOfDay(d: Date) {
   return x;
 }
 
+/**
+ * Serializa um Date como data-pura "YYYY-MM-DD" usando os getters locais.
+ *
+ * Importante: NAO usar `.toISOString()` para passar datas-calendario ao
+ * client. Na Vercel o servidor roda em UTC; um `new Date(2026,5,3)` vira
+ * "2026-06-03T00:00:00Z", e o client em UTC-3 reinterpreta como 02/06 21:00,
+ * exibindo o dia anterior. Passando so a data (sem hora), o client reconstroi
+ * o mesmo dia-calendario via `parseDateInput`, independente do fuso.
+ */
+function toYmd(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function addDays(d: Date, days: number) {
   const x = new Date(d);
   x.setDate(x.getDate() + days);
@@ -137,9 +151,9 @@ export default async function AgendaPage({
         domain={domain}
         viewMode={viewMode}
         resourceAxis={resourceAxis}
-        selectedDate={selectedDate.toISOString()}
-        rangeStart={rangeStart.toISOString()}
-        rangeEnd={rangeEnd.toISOString()}
+        selectedDate={toYmd(selectedDate)}
+        rangeStart={toYmd(rangeStart)}
+        rangeEnd={toYmd(rangeEnd)}
         appointments={[]}
         monthCounts={monthlyAppointments}
         blocks={[]}
@@ -165,9 +179,9 @@ export default async function AgendaPage({
       domain={domain}
       viewMode={viewMode}
       resourceAxis={resourceAxis}
-      selectedDate={selectedDate.toISOString()}
-      rangeStart={rangeStart.toISOString()}
-      rangeEnd={rangeEnd.toISOString()}
+      selectedDate={toYmd(selectedDate)}
+      rangeStart={toYmd(rangeStart)}
+      rangeEnd={toYmd(rangeEnd)}
       appointments={schedule.appointments}
       monthCounts={[]}
       blocks={schedule.blocks}

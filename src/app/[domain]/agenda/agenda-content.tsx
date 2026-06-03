@@ -126,9 +126,13 @@ export function AgendaContent({
   const [noShowLeadIds, setNoShowLeadIds] = useState<Set<string>>(new Set());
   const [moveError, setMoveError] = useState<string | null>(null);
 
-  const dateObj = useMemo(() => new Date(selectedDate), [selectedDate]);
-  const startObj = useMemo(() => new Date(rangeStart), [rangeStart]);
-  const endObj = useMemo(() => new Date(rangeEnd), [rangeEnd]);
+  // `selectedDate`/`rangeStart`/`rangeEnd` chegam como data-pura "YYYY-MM-DD"
+  // (ver `toYmd` na page). Parseamos com `parseDateInput` para reconstruir a
+  // meia-noite LOCAL do dia-calendario — evita o off-by-one de fuso que fazia
+  // o "Hoje" exibir o dia anterior em UTC-3.
+  const dateObj = useMemo(() => parseDateInput(selectedDate), [selectedDate]);
+  const startObj = useMemo(() => parseDateInput(rangeStart), [rangeStart]);
+  const endObj = useMemo(() => parseDateInput(rangeEnd), [rangeEnd]);
 
   const days = useMemo(() => {
     const list: Date[] = [];
