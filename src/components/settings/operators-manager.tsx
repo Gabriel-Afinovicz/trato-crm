@@ -80,6 +80,16 @@ export function OperatorsManager() {
   const [newSectorError, setNewSectorError] = useState<string | null>(null);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Troca de senha: membro alvo do modal + campos. Disponivel apenas para
+  // admin/super_admin (a aba inteira ja e restrita a admin); a rota de API
+  // tambem reforca a permissao no servidor.
+  const [passwordTarget, setPasswordTarget] = useState<UserWithTags | null>(
+    null
+  );
+  const [newPasswordValue, setNewPasswordValue] = useState("");
+  const [confirmPasswordValue, setConfirmPasswordValue] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [savingTagsForId, setSavingTagsForId] = useState<string | null>(null);
   const [savingSectorsForId, setSavingSectorsForId] = useState<string | null>(
     null
@@ -458,6 +468,64 @@ export function OperatorsManager() {
 
     setDeletingId(null);
     await fetchAll();
+  }
+
+  function openPasswordModal(user: UserWithTags) {
+    setPasswordTarget(user);
+    setNewPasswordValue("");
+    setConfirmPasswordValue("");
+    setPasswordError(null);
+  }
+
+  function closePasswordModal() {
+    if (savingPassword) return;
+    setPasswordTarget(null);
+    setNewPasswordValue("");
+    setConfirmPasswordValue("");
+    setPasswordError(null);
+  }
+
+  async function handleSubmitPassword(e: FormEvent) {
+    e.preventDefault();
+    if (!passwordTarget || !domain) return;
+    setPasswordError(null);
+
+    if (newPasswordValue.length < 6) {
+      setPasswordError("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (newPasswordValue !== confirmPasswordValue) {
+      setPasswordError("As senhas não coincidem.");
+      return;
+    }
+
+    setSavingPassword(true);
+    const res = await fetch("/api/operators/set-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domain,
+        userId: passwordTarget.id,
+        password: newPasswordValue,
+      }),
+    });
+    setSavingPassword(false);
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      setPasswordError(payload.error ?? "Erro ao alterar a senha.");
+      return;
+    }
+
+    const isSelfTarget = profile?.id === passwordTarget.id;
+    toast.success(
+      isSelfTarget
+        ? "Sua senha foi alterada."
+        : `Senha de ${passwordTarget.name} alterada.`
+    );
+    setPasswordTarget(null);
+    setNewPasswordValue("");
+    setConfirmPasswordValue("");
   }
 
   const canRender = !companyLoading && companyId;
@@ -972,15 +1040,24 @@ export function OperatorsManager() {
                         )}
                       </td>
                       <td className="px-5 py-3 text-right">
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          disabled={isSelf}
-                          loading={isDeleting}
-                          onClick={() => handleDelete(u.id, u.name)}
-                        >
-                          Excluir
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => openPasswordModal(u)}
+                          >
+                            {isSelf ? "Minha senha" : "Senha"}
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            disabled={isSelf}
+                            loading={isDeleting}
+                            onClick={() => handleDelete(u.id, u.name)}
+                          >
+                            Excluir
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -990,6 +1067,69 @@ export function OperatorsManager() {
           </div>
         )}
       </section>
+
+      {passwordTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={closePasswordModal}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-gray-900">
+              {profile?.id === passwordTarget.id
+                ? "Alterar minha senha"
+                : `Alterar senha de ${passwordTarget.name}`}
+            </h3>
+            <p className="mt-0.5 text-xs text-gray-500">
+              O membro usará a nova senha no próximo login (ramal{" "}
+              <code className="rounded bg-gray-100 px-1 py-0.5">
+                {passwordTarget.extension_number}
+              </code>
+              ).
+            </p>
+
+            <form onSubmit={handleSubmitPassword} className="mt-4 space-y-4">
+              {passwordError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {passwordError}
+                </div>
+              )}
+              <Input
+                label="Nova senha *"
+                type="password"
+                placeholder="Mínimo 6 caracteres"
+                value={newPasswordValue}
+                onChange={(e) => setNewPasswordValue(e.target.value)}
+                autoComplete="new-password"
+                autoFocus
+              />
+              <Input
+                label="Confirmar nova senha *"
+                type="password"
+                placeholder="Repita a senha"
+                value={confirmPasswordValue}
+                onChange={(e) => setConfirmPasswordValue(e.target.value)}
+                autoComplete="new-password"
+              />
+              <div className="flex items-center justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closePasswordModal}
+                  disabled={savingPassword}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" loading={savingPassword}>
+                  Salvar senha
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

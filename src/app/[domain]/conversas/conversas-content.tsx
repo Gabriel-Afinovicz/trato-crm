@@ -12,8 +12,12 @@ import {
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/components/layout/session-provider";
+import { LeadDetailsView } from "@/components/leads/lead-details-view";
 import type {
+  CustomField,
+  CustomFieldValue,
   Lead,
+  LeadDetailed,
   WhatsAppChat,
   WhatsAppInstance,
   WhatsAppMessage,
@@ -3071,7 +3075,31 @@ export function ConversasContent({
                 ))
               )}
             </div>
-            <div className="mt-3 flex justify-end">
+            <div className="mt-3 flex items-center justify-between gap-2">
+              {activeChat && (
+                <Link
+                  href={`/${domain}/leads/new?phone=${encodeURIComponent(
+                    activeChat.remote_jid.replace(/@.*$/, "")
+                  )}&chatId=${encodeURIComponent(activeChat.id)}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Criar novo lead
+                </Link>
+              )}
               <button
                 type="button"
                 onClick={() => setShowLinkLead(false)}
@@ -3182,6 +3210,66 @@ function ContactPanel({
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Informacoes do lead vinculado — espelham o card do Kanban. So buscamos
+  // quando ha `chat.lead_id`. Reusa o componente `LeadDetailsView`, o mesmo
+  // do kanban-lead-edit-modal, para garantir paridade visual.
+  const [leadDetailed, setLeadDetailed] = useState<LeadDetailed | null>(null);
+  const [leadCustomFields, setLeadCustomFields] = useState<CustomField[]>([]);
+  const [leadCustomValues, setLeadCustomValues] = useState<CustomFieldValue[]>(
+    []
+  );
+  const [loadingLead, setLoadingLead] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const leadId = chat.lead_id;
+    if (!leadId) {
+      setLeadDetailed(null);
+      setLeadCustomFields([]);
+      setLeadCustomValues([]);
+      return;
+    }
+    setLoadingLead(true);
+    (async () => {
+      const supabase = createClient();
+      const { data: detailedData } = await supabase
+        .from("vw_leads_detailed")
+        .select("*")
+        .eq("id", leadId)
+        .maybeSingle();
+      if (cancelled) return;
+      const detailed =
+        (detailedData as unknown as LeadDetailed | null) ?? null;
+      setLeadDetailed(detailed);
+      if (detailed) {
+        const [fieldsRes, valuesRes] = await Promise.all([
+          supabase
+            .from("custom_fields")
+            .select("*")
+            .eq("company_id", detailed.company_id)
+            .eq("is_active", true)
+            .order("display_order"),
+          supabase
+            .from("custom_field_values")
+            .select("*")
+            .eq("lead_id", leadId)
+            .eq("company_id", detailed.company_id),
+        ]);
+        if (cancelled) return;
+        setLeadCustomFields(
+          (fieldsRes.data as unknown as CustomField[] | null) ?? []
+        );
+        setLeadCustomValues(
+          (valuesRes.data as unknown as CustomFieldValue[] | null) ?? []
+        );
+      }
+      if (!cancelled) setLoadingLead(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [chat.lead_id]);
 
   // Quando troca de chat (props.chat.id muda) com o painel aberto,
   // sai do modo edicao e re-sincroniza o draft. Sem isso, o draft do
@@ -3441,15 +3529,69 @@ function ContactPanel({
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={onLinkLead}
-                className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Vincular a um lead
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={onLinkLead}
+                  className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  Vincular a um lead existente
+                </button>
+                <Link
+                  href={`/${domain}/leads/new?phone=${encodeURIComponent(
+                    phone
+                  )}&chatId=${encodeURIComponent(chat.id)}`}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Criar novo lead
+                </Link>
+                <p className="text-center text-[11px] text-gray-400">
+                  O telefone do contato já vem preenchido e a conversa fica
+                  vinculada automaticamente.
+                </p>
+              </div>
             )}
           </section>
+
+          {chat.lead_id && (
+            <section className="border-b border-gray-100 px-5 py-4">
+              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                Informações do lead
+              </h3>
+              {loadingLead && !leadDetailed ? (
+                <div className="space-y-2">
+                  <div className="h-16 animate-pulse rounded-lg bg-gray-100" />
+                  <div className="h-16 animate-pulse rounded-lg bg-gray-100" />
+                </div>
+              ) : leadDetailed ? (
+                <LeadDetailsView
+                  domain={domain}
+                  detailed={leadDetailed}
+                  customFields={leadCustomFields}
+                  customValues={leadCustomValues}
+                  showWhatsAppLink={false}
+                />
+              ) : (
+                <p className="text-xs text-gray-400">
+                  Não foi possível carregar as informações do lead.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="border-b border-gray-100 px-5 py-4">
             <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400">

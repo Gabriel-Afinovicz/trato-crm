@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -260,13 +261,27 @@ export function Sidebar({
       </button>
 
       <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-          O
-        </div>
-        {!collapsed && (
-          <span className="truncate text-sm font-semibold text-gray-900">
-            CRM
-          </span>
+        {collapsed ? (
+          // Recolhida: mostra so a marca (funil) recortando a logo a esquerda.
+          <div className="h-8 w-8 shrink-0 overflow-hidden">
+            <Image
+              src="/trato-crm-logo.png"
+              alt="Trato CRM"
+              width={727}
+              height={195}
+              className="h-8 w-auto max-w-none"
+              priority
+            />
+          </div>
+        ) : (
+          <Image
+            src="/trato-crm-logo.png"
+            alt="Trato CRM"
+            width={727}
+            height={195}
+            className="h-8 w-auto"
+            priority
+          />
         )}
       </div>
 

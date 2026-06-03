@@ -5,10 +5,15 @@ import Link from "next/link";
 
 interface NewLeadPageProps {
   params: Promise<{ domain: string }>;
+  searchParams: Promise<{ phone?: string; chatId?: string }>;
 }
 
-export default async function NewLeadPage({ params }: NewLeadPageProps) {
+export default async function NewLeadPage({
+  params,
+  searchParams,
+}: NewLeadPageProps) {
   const { domain } = await params;
+  const { phone, chatId } = await searchParams;
   const { user } = await getAuthSession();
 
   if (!user) {
@@ -46,7 +51,12 @@ export default async function NewLeadPage({ params }: NewLeadPageProps) {
           </div>
         </div>
 
-        <LeadForm domain={domain} layout="two-column" />
+        <LeadForm
+          domain={domain}
+          layout="two-column"
+          initialPhone={phone}
+          linkChatId={chatId}
+        />
       </div>
     </div>
   );

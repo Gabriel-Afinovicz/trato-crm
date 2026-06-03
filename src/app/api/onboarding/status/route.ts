@@ -64,7 +64,7 @@ export async function GET() {
       .from("whatsapp_instances")
       .select("id", { head: true, count: "exact" })
       .eq("company_id", companyId)
-      .eq("state", "open"),
+      .eq("status", "connected"),
     supabase
       .from("leads")
       .select("id", { head: true, count: "exact" })

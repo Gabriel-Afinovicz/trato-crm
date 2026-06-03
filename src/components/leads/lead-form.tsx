@@ -43,6 +43,17 @@ interface LeadFormProps {
    *                 ocupar o espaco horizontal disponivel.
    */
   layout?: "single" | "two-column";
+  /**
+   * Telefone pre-preenchido na criacao (ex.: vindo de uma conversa do
+   * WhatsApp em /conversas). Ignorado em modo edicao (usa o do lead).
+   */
+  initialPhone?: string;
+  /**
+   * Quando informado, apos criar o lead vinculamos esta conversa
+   * (`whatsapp_chats.id`) ao novo lead — fluxo "Criar lead" a partir do
+   * painel de contato das Conversas.
+   */
+  linkChatId?: string;
   onSaved?: (lead: Lead) => void;
   onCancelAction?: () => void;
 }
@@ -132,6 +143,8 @@ export function LeadForm({
   lead,
   submitMode = "navigate",
   layout = "single",
+  initialPhone,
+  linkChatId,
   onSaved,
   onCancelAction,
 }: LeadFormProps) {
@@ -144,7 +157,7 @@ export function LeadForm({
   const [showAddFieldForm, setShowAddFieldForm] = useState(false);
 
   const [name, setName] = useState(lead?.name || "");
-  const [phone, setPhone] = useState(lead?.phone || "");
+  const [phone, setPhone] = useState(lead?.phone || initialPhone || "");
   // Email opcional — usado para enriquecer integracoes (ex.: Clinicorp) e
   // futuras notificacoes. NAO participa de login/autenticacao.
   const [email, setEmail] = useState(lead?.email || "");
@@ -697,6 +710,15 @@ export function LeadForm({
     const newId = result.lead_id;
     if (newId && selectedTagIds.length > 0) {
       await persistLeadTags(newId);
+    }
+    // Vincula a conversa de origem (WhatsApp) ao lead recem-criado, quando
+    // o form foi aberto a partir do painel de contato em /conversas.
+    if (newId && linkChatId) {
+      const supabase = createClient();
+      await supabase
+        .from("whatsapp_chats")
+        .update({ lead_id: newId })
+        .eq("id", linkChatId);
     }
     setSaving(false);
     toast.success(

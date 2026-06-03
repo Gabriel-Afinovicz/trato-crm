@@ -26,6 +26,13 @@ const POLL_MS = 3000;
 // API (findChats + whatsappNumbers em batches), o que pode levar o numero
 // a ser flagado como comportamento automatizado.
 const SYNC_COOLDOWN_MS = 60_000;
+// Atraso antes do sync automatico disparado ao conectar. Logo apos o QR ser
+// lido, a Evolution/Baileys ainda esta baixando a lista de conversas do
+// celular — sincronizar no mesmo instante faz o `findChats` voltar vazio e
+// nenhum contato e importado. Esperamos alguns segundos para dar tempo de o
+// historico de chats ficar disponivel. O `post-login-sync` (rodado na proxima
+// navegacao) e a rede de seguranca para contas grandes que demoram mais.
+const CONNECT_SYNC_DELAY_MS = 15_000;
 
 export function WhatsAppInstanceManager() {
   const params = useParams<{ domain?: string }>();
@@ -237,9 +244,12 @@ export function WhatsAppInstanceManager() {
       ) {
         syncedRef.current = true;
         // Chama sync fora do setState para não bloquear a atualização de estado.
-        // Se cair em cooldown server-side (admin sincronizou ha < 60s), o
-        // proprio syncChats trata o 429 e ajusta o tick — sem rajada extra.
-        setTimeout(() => syncChats(), 0);
+        // Aguarda CONNECT_SYNC_DELAY_MS para dar tempo de a Evolution/Baileys
+        // baixar a lista de conversas do celular — sincronizar imediatamente
+        // faz o findChats voltar vazio. Se cair em cooldown server-side (admin
+        // sincronizou ha < 60s), o proprio syncChats trata o 429 e ajusta o
+        // tick — sem rajada extra.
+        setTimeout(() => syncChats(), CONNECT_SYNC_DELAY_MS);
       }
       return s.instance;
     });

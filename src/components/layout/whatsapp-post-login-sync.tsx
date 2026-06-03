@@ -73,13 +73,30 @@ export function WhatsAppPostLoginSync() {
         keepalive: true,
       })
         .then(async (res) => {
-          if (process.env.NODE_ENV !== "development") return;
-          const payload = await res.json().catch(() => null);
-          console.debug("[wa:postSync] result:", payload);
+          const payload = (await res.json().catch(() => null)) as
+            | { skipped?: boolean; reason?: string }
+            | null;
+          // Se o sync foi PULADO porque a instancia ainda nao estava conectada
+          // (ou nao existe), NAO queimamos o marcador da sessao: limpamos para
+          // que a proxima navegacao re-dispare assim que a instancia conectar.
+          // Sem isso, conectar o WhatsApp DEPOIS do login nunca traria
+          // contatos+historico ate o usuario abrir uma aba nova.
+          if (
+            payload?.skipped &&
+            (payload.reason === "not_connected" ||
+              payload.reason === "no_instance")
+          ) {
+            try {
+              sessionStorage.removeItem(key);
+            } catch {
+              /* noop */
+            }
+          }
+          if (process.env.NODE_ENV === "development") {
+            console.debug("[wa:postSync] result:", payload);
+          }
         })
         .catch((err) => {
-          if (process.env.NODE_ENV !== "development") return;
-          console.debug("[wa:postSync] failed:", err);
           // Se a chamada falhou, libera o marcador para tentar de novo na
           // proxima navegacao; ainda dentro do mesmo "uma vez por sessao
           // por user" — o cooldown server-side cobre o resto.
@@ -87,6 +104,9 @@ export function WhatsAppPostLoginSync() {
             sessionStorage.removeItem(key);
           } catch {
             /* noop */
+          }
+          if (process.env.NODE_ENV === "development") {
+            console.debug("[wa:postSync] failed:", err);
           }
         });
     }, DISPATCH_DELAY_MS);
