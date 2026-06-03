@@ -103,6 +103,14 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Paginas publicas de nivel raiz que NAO sao tenants (o primeiro segmento
+  // nao e um dominio de clinica). Sem este bypass, o middleware trata
+  // "ajuda" como tenant e, havendo sessao, redireciona /ajuda para
+  // /ajuda/dashboard — escondendo a rota estatica /ajuda (tutorial).
+  if (domain === "ajuda") {
+    return supabaseResponse;
+  }
+
   const isLoginPage = segments.length === 1;
   const isPublicConfirmation = segments[1] === "confirmar";
   // Reset de senha via email: pode ser acessada sem sessao autenticada

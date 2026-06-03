@@ -445,11 +445,42 @@ export function Sidebar({
         })}
       </nav>
 
-      {!collapsed && (
-        <div className="border-t border-gray-200 px-5 py-3">
-          <p className="truncate text-xs text-gray-400">{domain}</p>
-        </div>
-      )}
+      <div className="border-t border-gray-200 p-2">
+        <a
+          href={`/ajuda?d=${encodeURIComponent(domain)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Ajuda e tutorial"
+          className={`flex items-center gap-3 rounded-lg text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-blue-700 ${
+            collapsed ? "justify-center p-2" : "px-3 py-2"
+          }`}
+        >
+          <svg
+            className="h-5 w-5 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
+            />
+          </svg>
+          {!collapsed && (
+            <span className="flex flex-1 flex-col">
+              <span>Ajuda e tutorial</span>
+              <span className="text-[11px] font-normal text-gray-400">
+                Como usar o CRM (beta)
+              </span>
+            </span>
+          )}
+        </a>
+        {!collapsed && (
+          <p className="mt-2 truncate px-3 text-xs text-gray-400">{domain}</p>
+        )}
+      </div>
       </aside>
     </>
   );
