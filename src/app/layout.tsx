@@ -38,6 +38,9 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         {children}
+        <div className="fixed inset-x-0 bottom-0 z-50 bg-yellow-300 px-2 py-px text-center text-[9px] font-medium leading-tight text-yellow-900">
+          CRM em versão beta — em constante atualização.
+        </div>
         {/* Toaster global do sonner. richColors aplica paleta padrao
             (success/error/info) e closeButton mostra X em cada toast.
             position no canto inferior direito para nao competir com a

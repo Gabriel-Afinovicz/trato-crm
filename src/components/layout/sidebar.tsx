@@ -445,7 +445,7 @@ export function Sidebar({
         })}
       </nav>
  
-      <div className="border-t border-slate-200/60 p-2">
+      <div className="border-t border-slate-200/60 p-2 pb-5">
         <a
           href={`/ajuda?d=${encodeURIComponent(domain)}`}
           target="_blank"
