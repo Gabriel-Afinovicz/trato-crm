@@ -132,6 +132,7 @@ export function LoginForm({ domain }: LoginFormProps) {
         required
         autoComplete="username"
         autoFocus
+        className="transition-all duration-200 focus:scale-[1.01]"
       />
 
       <Input
@@ -142,15 +143,21 @@ export function LoginForm({ domain }: LoginFormProps) {
         onChange={(e) => setSenha(e.target.value)}
         required
         autoComplete="current-password"
+        className="transition-all duration-200 focus:scale-[1.01]"
       />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 animate-pulse">
           {error}
         </div>
       )}
 
-      <Button type="submit" loading={loading} className="w-full" size="lg">
+      <Button
+        type="submit"
+        loading={loading}
+        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-md hover:shadow-blue-500/10 transition-all active:scale-[0.98] duration-200 border-0 font-semibold"
+        size="lg"
+      >
         Entrar
       </Button>
 
@@ -161,7 +168,7 @@ export function LoginForm({ domain }: LoginFormProps) {
             setForgotRamal(ramal);
             setForgotOpen((v) => !v);
           }}
-          className="text-xs font-medium text-blue-600 hover:underline"
+          className="text-xs font-semibold text-blue-600 hover:text-indigo-600 transition-colors duration-200 hover:underline"
         >
           {forgotOpen ? "Cancelar recuperação" : "Esqueci minha senha"}
         </button>
@@ -177,9 +184,9 @@ export function LoginForm({ domain }: LoginFormProps) {
             onSubmit={handleForgotSubmit}
             role="group"
             aria-label="Recuperação de senha"
-            className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4"
+            className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-4 shadow-sm transition-all duration-300"
           >
-            <p className="text-xs text-gray-700">
+            <p className="text-xs leading-relaxed text-slate-600">
               Informe o ramal cadastrado. Enviaremos um link de recuperacao
               para o email associado a esse ramal. Se o seu ramal ainda nao
               tem email cadastrado, peca ao administrador da organizacao
@@ -191,12 +198,13 @@ export function LoginForm({ domain }: LoginFormProps) {
               value={forgotRamal}
               onChange={(e) => setForgotRamal(e.target.value)}
               autoComplete="username"
+              className="transition-all duration-200 focus:scale-[1.01]"
             />
             <Button
               type="button"
               onClick={handleForgotSubmit}
               loading={forgotSending}
-              className="w-full"
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all active:scale-[0.98] duration-200 border-0 font-semibold"
             >
               Enviar link de recuperação
             </Button>
@@ -205,4 +213,5 @@ export function LoginForm({ domain }: LoginFormProps) {
       )}
     </form>
   );
+
 }

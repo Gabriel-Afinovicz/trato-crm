@@ -127,16 +127,16 @@ export function KanbanCard({
       onClick={handleClick}
       role="button"
       tabIndex={0}
-      className={`group relative cursor-grab touch-none select-none rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-shadow active:cursor-grabbing
-        ${isDragging ? "opacity-40" : "hover:shadow-md"}
-        ${isOverlay ? "rotate-1 shadow-lg ring-2 ring-blue-400/40" : ""}`}
+      className={`group relative cursor-grab touch-none select-none rounded-xl border border-slate-200/85 bg-white p-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.01)] transition-all duration-300 ease-out active:cursor-grabbing active:scale-[0.98]
+        ${isDragging ? "opacity-30" : "hover:-translate-y-1 hover:shadow-[0_10px_20px_-10px_rgba(0,0,0,0.08),0_1px_4px_rgba(0,0,0,0.02)] hover:border-slate-300"}
+        ${isOverlay ? "rotate-[2deg] shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_10px_10px_-5px_rgba(0,0,0,0.04)] ring-2 ring-blue-500/20 border-blue-400/80" : ""}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="flex-1 truncate text-sm font-medium text-gray-900">
+        <span className="flex-1 truncate text-sm font-semibold text-slate-800 group-hover:text-blue-600 transition-colors duration-300 tracking-tight">
           {lead.name}
         </span>
         <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[10px] uppercase tracking-wide text-gray-400">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400/80">
             {formatRelative(lead.updated_at ?? lead.created_at)}
           </span>
           {!isOverlay && allStages && allStages.length > 0 && onMoveToStage && (
@@ -149,13 +149,13 @@ export function KanbanCard({
                   setMenuOpen((v) => !v);
                 }}
                 aria-label="Mais ações"
-                className="rounded p-0.5 text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-700 group-hover:opacity-100 focus:opacity-100"
+                className="rounded-md p-1 text-slate-400 opacity-0 transition-all hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100 active:scale-[0.9]"
               >
                 <svg
-                  className="h-4 w-4"
+                  className="h-3.5 w-3.5"
                   fill="none"
                   viewBox="0 0 24 24"
-                  strokeWidth={2}
+                  strokeWidth={2.5}
                   stroke="currentColor"
                 >
                   <path
@@ -166,11 +166,11 @@ export function KanbanCard({
                 </svg>
               </button>
               {menuOpen && (
-                <div className="absolute right-0 z-20 mt-1 w-48 origin-top-right rounded-md border border-gray-200 bg-white py-1 shadow-lg">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                <div className="absolute right-0 z-25 mt-1.5 w-48 origin-top-right rounded-xl border border-slate-200/80 bg-white/95 backdrop-blur-md py-1.5 shadow-[0_10px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)] ring-1 ring-black/5 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
                     Mover para etapa
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
+                  <div className="max-h-64 overflow-y-auto mt-1">
                     {allStages.map((s) => (
                       <button
                         key={s.id}
@@ -184,15 +184,15 @@ export function KanbanCard({
                             onMoveToStage(lead.id, s.id);
                           }
                         }}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 transition-colors disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer font-medium"
                       >
                         <span
                           className="h-2 w-2 shrink-0 rounded-full"
                           style={{ backgroundColor: s.color }}
                         />
-                        <span className="truncate">{s.name}</span>
+                        <span className="truncate flex-1">{s.name}</span>
                         {s.id === lead.stage_id && (
-                          <span className="ml-auto text-[10px] text-gray-400">
+                          <span className="ml-auto text-[9px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">
                             atual
                           </span>
                         )}
@@ -206,7 +206,7 @@ export function KanbanCard({
         </div>
       </div>
 
-      <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 font-medium">
         {age !== null && <span>{age} anos</span>}
         {(lead.phone || lead.email) && (
           <span className="truncate">
@@ -216,16 +216,16 @@ export function KanbanCard({
         )}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {lead.source_name && (
-          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+          <span className="inline-flex items-center rounded-full bg-slate-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-500 border border-slate-200/60 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
             {lead.source_name}
           </span>
         )}
         {hasAllergy && (
           <span
             title={`Alergia: ${lead.allergies}`}
-            className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700"
+            className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-rose-700 border border-rose-100 shadow-[0_1px_2px_rgba(0,0,0,0.01)]"
           >
             <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -240,14 +240,14 @@ export function KanbanCard({
         {inactive && (
           <span
             title={`Sem atividade há ${daysSince(referenceActivity)} dias`}
-            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-700 border border-amber-100 shadow-[0_1px_2px_rgba(0,0,0,0.01)]"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> inativo
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" /> inativo
           </span>
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-end">
+      <div className="mt-3 flex items-center justify-end border-t border-slate-100 pt-2.5">
         {lead.assigned_to_name ? (
           <span
             title={
@@ -255,11 +255,11 @@ export function KanbanCard({
                 ? `Profissional: ${lead.assigned_to_name}`
                 : lead.assigned_to_name
             }
-            className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold
+            className={`flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold tracking-wider shadow-sm ring-2 ring-white transition-all duration-300 hover:scale-110
               ${
                 lead.assigned_is_dentist
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-blue-100 text-blue-700"
+                  ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                  : "bg-blue-50 text-blue-600 border border-blue-200"
               }`}
           >
             {initials(lead.assigned_to_name)}
@@ -267,7 +267,7 @@ export function KanbanCard({
         ) : (
           <span
             title="Sem responsável"
-            className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-gray-300 text-[10px] text-gray-400"
+            className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-slate-200 text-[10px] font-semibold text-slate-400 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer"
           >
             ?
           </span>

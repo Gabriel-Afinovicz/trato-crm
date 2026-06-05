@@ -62,6 +62,12 @@ const ACCENT_STYLES: Record<
   },
 };
 
+const HOVER_STYLES: Record<FunnelKpiAccent, string> = {
+  neutral: "hover:shadow-[0_15px_30px_rgba(59,130,246,0.06)] hover:border-blue-200",
+  above: "hover:shadow-[0_15px_30px_rgba(16,185,129,0.06)] hover:border-emerald-200",
+  below: "hover:shadow-[0_15px_30px_rgba(239,68,68,0.06)] hover:border-red-200",
+};
+
 export function FunnelKpiCard({
   title,
   value,
@@ -82,15 +88,15 @@ export function FunnelKpiCard({
 
   return (
     <div
-      className={`flex flex-col gap-3 rounded-xl border border-l-4 ${colors.border} border-gray-200 bg-white p-5 shadow-sm`}
+      className={`flex flex-col gap-3 rounded-xl border border-l-4 ${colors.border} border-gray-200 bg-white p-5 shadow-sm group hover:-translate-y-1 ${HOVER_STYLES[accent]} transition-all duration-300`}
       title={tooltip}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-gray-500">{title}</p>
+        <p className="text-sm font-semibold text-slate-500 tracking-tight">{title}</p>
         <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors.iconBg}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors.iconBg} group-hover:scale-110 group-hover:rotate-[4deg] transition-all duration-300`}
         >
-          <span className={colors.iconColor}>{icon}</span>
+          <span className={`${colors.iconColor} transition-transform`}>{icon}</span>
         </span>
       </div>
 

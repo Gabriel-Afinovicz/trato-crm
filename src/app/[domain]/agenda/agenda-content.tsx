@@ -451,11 +451,11 @@ export function AgendaContent({
     // Antes `min-h-screen`; agora `min-h-full` para respeitar a área
     // disponível abaixo da barra global do AppShell.
     <div className="min-h-full">
-      <header className="border-b border-gray-200 bg-white">
+      <header className="border-b border-slate-200/80 bg-white px-1 py-0.5">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 lg:px-8">
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Agenda</h1>
-            <p className="text-xs text-gray-500">
+            <h1 className="text-lg font-bold text-slate-800 tracking-tight">Agenda</h1>
+            <p className="text-xs text-slate-500 font-medium">
               {agendaEnabled
                 ? viewMode === "day"
                   ? fmtTitle(dateObj)
@@ -469,7 +469,7 @@ export function AgendaContent({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => openCreateAt()}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 active:scale-[0.97] transition-all cursor-pointer"
               >
                 + Agendar
               </button>
@@ -484,11 +484,11 @@ export function AgendaContent({
         </main>
       ) : (
       <main className="p-4 lg:p-6">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mb-5 flex flex-wrap items-center gap-3">
           <div
             role="tablist"
             aria-label="Modo de visualização"
-            className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 text-xs"
+            className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
           >
             {(["day", "week", "month"] as ViewMode[]).map((v) => (
               <button
@@ -496,10 +496,10 @@ export function AgendaContent({
                 role="tab"
                 aria-selected={viewMode === v}
                 onClick={() => navigate(dateObj, v)}
-                className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+                className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-[0.96] cursor-pointer ${
                   viewMode === v
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 {v === "day" ? "Dia" : v === "week" ? "Semana" : "Mês"}
@@ -507,33 +507,35 @@ export function AgendaContent({
             ))}
           </div>
 
-          <button
-            onClick={() => moveBy(-1)}
-            aria-label="Anterior"
-            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            ‹
-          </button>
-          <button
-            onClick={() => navigate(new Date(), viewMode)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            Hoje
-          </button>
-          <button
-            onClick={() => moveBy(1)}
-            aria-label="Próximo"
-            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            ›
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => moveBy(-1)}
+              aria-label="Anterior"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
+            >
+              ‹
+            </button>
+            <button
+              onClick={() => navigate(new Date(), viewMode)}
+              className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.96] cursor-pointer"
+            >
+              Hoje
+            </button>
+            <button
+              onClick={() => moveBy(1)}
+              aria-label="Próximo"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
+            >
+              ›
+            </button>
+          </div>
+
           <input
             type="date"
             value={toDateInput(dateObj)}
             onChange={(e) => navigate(parseDateInput(e.target.value), viewMode)}
-            className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-600"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer"
           />
-
         </div>
 
         {viewMode === "month" ? (

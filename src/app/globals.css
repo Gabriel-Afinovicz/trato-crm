@@ -32,3 +32,70 @@ label:has(input[type="radio"]) {
 button:disabled {
   cursor: not-allowed;
 }
+
+/* Animações orbitais para fundo premium da Tela de Login */
+@keyframes orbit-1 {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.95);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+@keyframes orbit-2 {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  50% {
+    transform: translate(-40px, 40px) scale(1.15);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+@keyframes orbit-3 {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  40% {
+    transform: translate(50px, 30px) scale(0.9);
+  }
+  80% {
+    transform: translate(-10px, -30px) scale(1.05);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-orbit-1 {
+  animation: orbit-1 20s infinite ease-in-out;
+}
+
+.animate-orbit-2 {
+  animation: orbit-2 25s infinite ease-in-out;
+}
+
+.animate-orbit-3 {
+  animation: orbit-3 22s infinite ease-in-out;
+}
+
+/* Malha quadriculada que some gradientemente no centro */
+.grid-pattern-masked {
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(circle at center, transparent 20%, black 80%);
+  -webkit-mask-image: radial-gradient(circle at center, transparent 20%, black 80%);
+}
+
+

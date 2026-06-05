@@ -22,13 +22,13 @@ import { KanbanCard } from "./kanban-card";
  * o usuário associe instantaneamente a coluna ao card da mini-dash.
  */
 const CATEGORY_PILL: Record<StageCategory, string> = {
-  frio: "bg-sky-100 text-sky-800",
-  quente: "bg-orange-100 text-orange-800",
-  agendado: "bg-blue-100 text-blue-800",
-  compareceu: "bg-violet-100 text-violet-800",
-  orcamento: "bg-amber-100 text-amber-800",
-  fechado: "bg-emerald-100 text-emerald-800",
-  perdido: "bg-rose-100 text-rose-800",
+  frio: "bg-sky-50 text-sky-700 border border-sky-200/50",
+  quente: "bg-orange-50 text-orange-700 border border-orange-200/50",
+  agendado: "bg-blue-50 text-blue-700 border border-blue-200/50",
+  compareceu: "bg-violet-50 text-violet-700 border border-violet-200/50",
+  orcamento: "bg-amber-50 text-amber-700 border border-amber-200/50",
+  fechado: "bg-emerald-50 text-emerald-700 border border-emerald-200/50",
+  perdido: "bg-rose-50 text-rose-700 border border-rose-200/50",
 };
 
 export function columnSortableId(stageId: string) {
@@ -39,13 +39,13 @@ function NewLeadButton({ domain }: { domain: string }) {
   return (
     <Link
       href={`/${domain}/leads/new`}
-      className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-white/60 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300/80 bg-white/50 px-3.5 py-2.5 text-xs font-semibold text-slate-600 shadow-sm transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-600 hover:shadow-md active:scale-[0.98]"
     >
       <svg
-        className="h-3.5 w-3.5"
+        className="h-4 w-4"
         fill="none"
         viewBox="0 0 24 24"
-        strokeWidth={2}
+        strokeWidth={2.5}
         stroke="currentColor"
       >
         <path
@@ -105,8 +105,10 @@ function CellDroppable({
   return (
     <div
       ref={setNodeRef}
-      className={`space-y-2 rounded-md p-1 transition-colors ${
-        isOver ? "bg-blue-50/70 ring-1 ring-blue-300/60" : ""
+      className={`space-y-2 rounded-xl p-1.5 transition-all duration-300 ${
+        isOver
+          ? "bg-blue-50/40 ring-2 ring-blue-400/20 shadow-[inset_0_2px_4px_rgba(59,130,246,0.02)]"
+          : "bg-transparent"
       }`}
     >
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
@@ -123,7 +125,7 @@ function CellDroppable({
         ))}
       </SortableContext>
       {empty && leads.length === 0 && (
-        <div className="flex h-20 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 text-[11px] text-gray-400">
+        <div className="flex h-20 items-center justify-center rounded-xl border-2 border-dashed border-slate-200/80 bg-slate-50/30 text-[11px] font-semibold text-slate-400/80 transition-all duration-200">
           Solte aqui
         </div>
       )}
@@ -175,14 +177,14 @@ export function KanbanColumn({
     <div
       ref={setNodeRef}
       style={{ ...style, borderTopColor: stage.color, borderTopWidth: 3 }}
-      className={`flex min-w-[280px] max-w-[320px] shrink-0 flex-col rounded-xl border border-gray-200 bg-gray-50/50 h-full ${
-        isDragging ? "opacity-60 ring-2 ring-blue-400/40" : ""
+      className={`flex min-w-[280px] max-w-[320px] shrink-0 flex-col rounded-xl border border-slate-200 bg-slate-50/45 h-full ${
+        isDragging ? "opacity-60 ring-2 ring-blue-400/35 shadow-lg" : ""
       }`}
     >
       <div
         {...attributes}
         {...listeners}
-        className="flex cursor-grab items-start justify-between border-b border-gray-200 bg-white/70 px-3 py-2 rounded-t-xl select-none active:cursor-grabbing"
+        className="flex cursor-grab items-start justify-between border-b border-slate-200 bg-white/80 px-3.5 py-3 rounded-t-xl select-none active:cursor-grabbing transition-colors duration-200"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -190,30 +192,30 @@ export function KanbanColumn({
               className="h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: stage.color }}
             />
-            <h3 className="truncate text-sm font-semibold text-gray-800">
+            <h3 className="truncate text-sm font-semibold text-slate-800">
               {stage.name}
             </h3>
             {stage.is_won && (
-              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-600 border border-emerald-200/50">
                 ganho
               </span>
             )}
             {stage.is_lost && (
-              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700">
+              <span className="rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-600 border border-red-200/50">
                 perdido
               </span>
             )}
           </div>
           {stage.category ? (
             <span
-              className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${CATEGORY_PILL[stage.category]}`}
+              className={`mt-1.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${CATEGORY_PILL[stage.category]}`}
               title="Categoria correspondente na mini-dash acima"
             >
               {STAGE_CATEGORY_LABEL[stage.category]}
             </span>
           ) : (
             <span
-              className="mt-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800"
+              className="mt-1.5 inline-flex items-center rounded-full bg-slate-100 text-slate-600 border border-slate-200/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider"
               title="Sem categoria definida — leads desta etapa caem em 'sem categoria' na mini-dash."
             >
               Sem categoria
@@ -221,7 +223,7 @@ export function KanbanColumn({
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-gray-600">
+          <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1.5 text-xs font-bold text-slate-600 border border-slate-200/50 shadow-sm">
             {totalCount}
           </span>
           {onEditStage && (
@@ -307,7 +309,7 @@ export function KanbanColumn({
           );
         })}
         {!showLaneLabel && totalCount === 0 && (
-          <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 text-xs text-gray-400">
+          <div className="flex h-24 items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/40 text-xs font-semibold text-slate-400/80">
             Solte um card aqui
           </div>
         )}

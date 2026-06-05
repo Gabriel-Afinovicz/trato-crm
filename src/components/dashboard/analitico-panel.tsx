@@ -287,7 +287,7 @@ export function AnaliticoPanel({
             <select
               value={sectorId ?? ""}
               onChange={(e) => setSectorId(e.target.value || null)}
-              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none"
+              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/10 cursor-pointer"
               title="Filtrar por setor"
             >
               <option value="">Todos setores</option>
@@ -301,25 +301,31 @@ export function AnaliticoPanel({
           {/* Carimbo da última atualização — mostra horário absoluto e
               tempo relativo (atualizado a cada segundo). */}
           {lastUpdatedAt && (
-            <span
-              className="text-[11px] text-gray-500"
-              title={`Última atualização: ${lastUpdatedAt.toLocaleString("pt-BR")}`}
-            >
-              Atualizado às{" "}
-              <span className="font-medium text-gray-700 tabular-nums">
-                {formatUpdatedAt(lastUpdatedAt)}
-              </span>{" "}
-              <span className="text-gray-400">
-                ({formatRelativeAge(lastUpdatedAt, now)})
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-            </span>
+              <span
+                className="text-[11px] text-gray-500"
+                title={`Última atualização: ${lastUpdatedAt.toLocaleString("pt-BR")}`}
+              >
+                Atualizado às{" "}
+                <span className="font-medium text-gray-700 tabular-nums">
+                  {formatUpdatedAt(lastUpdatedAt)}
+                </span>{" "}
+                <span className="text-gray-400">
+                  ({formatRelativeAge(lastUpdatedAt, now)})
+                </span>
+              </span>
+            </div>
           )}
           <button
             type="button"
             onClick={refreshNow}
             disabled={isPending || !companyId}
             title="Recarregar KPIs"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-slate-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.97] duration-200"
           >
             <svg
               className={`h-3.5 w-3.5 ${isPending ? "animate-spin" : ""}`}
@@ -339,7 +345,7 @@ export function AnaliticoPanel({
           <button
             type="button"
             onClick={() => setShowRangePicker((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-slate-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/10 active:scale-[0.97] duration-200"
           >
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
@@ -348,7 +354,7 @@ export function AnaliticoPanel({
           </button>
         </div>
       </div>
-
+ 
       {showRangePicker && (
         <DateRangePicker
           initialStart={toLocalDateInput(range.start)}
@@ -364,9 +370,9 @@ export function AnaliticoPanel({
           }}
         />
       )}
-
+ 
       {isDefaultGoals && domain && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 backdrop-blur-sm px-4 py-3 text-xs text-amber-900 shadow-sm transition-all duration-300">
           <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
           </svg>
@@ -382,15 +388,15 @@ export function AnaliticoPanel({
           </p>
         </div>
       )}
-
+ 
       {/* Empty state quando o periodo selecionado nao tem nenhum lead.
           Evita que o gestor interprete a sequencia de zeros como
           performance ruim — quase sempre e so filtro de periodo ou
           organizacao recem-criada. */}
       {kpis.total_leads === 0 && domain && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/60 px-5 py-4">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50/40 backdrop-blur-sm px-5 py-4 shadow-sm transition-all duration-300">
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700 animate-pulse">
               <svg
                 className="h-5 w-5"
                 fill="none"
@@ -409,7 +415,7 @@ export function AnaliticoPanel({
               <p className="text-sm font-semibold text-blue-900">
                 Nenhum lead no periodo {formatRangeLabel(range.start, range.end)}
               </p>
-              <p className="mt-1 text-xs text-blue-800/90">
+              <p className="mt-1 text-xs text-blue-800/90 leading-relaxed">
                 Os indicadores ficam zerados ate o primeiro lead. Tente um
                 periodo maior ou cadastre um lead para comecar a medir o
                 funil.
@@ -417,7 +423,7 @@ export function AnaliticoPanel({
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   href={`/${domain}/leads/new`}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 active:scale-[0.97] transition-all duration-200"
                 >
                   <svg
                     className="h-3.5 w-3.5"
@@ -437,7 +443,7 @@ export function AnaliticoPanel({
                 <button
                   type="button"
                   onClick={() => setShowRangePicker(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-50 active:scale-[0.97] transition-all duration-200"
                 >
                   Alterar periodo
                 </button>

@@ -10,9 +10,13 @@ export default async function LoginPage({ params }: LoginPageProps) {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-white px-4">
-      {/* Gradiente azul ancorado na base da tela, esmaecendo para transparente
-          antes de chegar no card — fica "abaixo" do card sem invadi-lo. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-blue-600/30 via-blue-500/10 to-transparent" />
+      {/* Cores suaves nos cantos (Órbitas lentas) */}
+      <div className="pointer-events-none absolute -top-40 -right-40 h-96 w-96 rounded-full bg-blue-500/8 blur-[100px] animate-orbit-1" />
+      <div className="pointer-events-none absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-indigo-500/8 blur-[100px] animate-orbit-2" />
+      
+      {/* Malha Quadriculada que some gradientemente no centro */}
+      <div className="pointer-events-none absolute inset-0 grid-pattern-masked" />
+
       <div className="relative z-10 w-full max-w-sm">
         <div className="mb-8 text-center">
           <Image
@@ -23,19 +27,21 @@ export default async function LoginPage({ params }: LoginPageProps) {
             className="mx-auto mb-4 h-12 w-auto"
             priority
           />
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-slate-500 font-medium">
             Acesse sua conta com ramal e senha
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-gray-200/80 bg-white/80 p-8 shadow-[0_20px_40px_rgba(0,0,0,0.04)] backdrop-blur-md">
           <LoginForm domain={domain} />
         </div>
 
-        <p className="mt-4 text-center text-xs text-gray-400">
-          Organização: {domain}
+        <p className="mt-5 text-center text-xs font-semibold tracking-wide text-slate-500 uppercase">
+          Organização · <span className="text-blue-600 font-bold">{domain}</span>
         </p>
       </div>
     </div>
   );
 }
+
+

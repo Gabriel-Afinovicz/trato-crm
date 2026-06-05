@@ -229,7 +229,7 @@ export function Sidebar({
         className={[
           // Desktop: sidebar estatica, controlada por `collapsed`.
           // Mobile (<md): vira drawer fixed que desliza pela esquerda.
-          "flex h-full flex-col border-r border-gray-200 bg-white",
+          "flex h-full flex-col border-r border-slate-200/85 bg-slate-50/95 backdrop-blur-md",
           "transition-[width,transform] duration-200",
           collapsed ? "md:w-14" : "md:w-60",
           // No mobile o drawer tem largura fixa amigavel ao polegar
@@ -247,10 +247,10 @@ export function Sidebar({
         onClick={() => setCollapsedPersisted(!collapsed)}
         aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
         title={collapsed ? "Expandir menu" : "Recolher menu"}
-        className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50 hover:text-gray-700 md:inline-flex"
+        className="absolute -right-3 top-4 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-md hover:bg-slate-50 hover:text-slate-700 md:inline-flex transition-all duration-200"
       >
         <svg
-          className={`h-3.5 w-3.5 transition-transform ${collapsed ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           strokeWidth={2.5}
@@ -259,8 +259,8 @@ export function Sidebar({
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
         </svg>
       </button>
-
-      <div className="flex h-16 items-center gap-3 border-b border-gray-200 px-4">
+ 
+      <div className="flex h-16 items-center gap-3 border-b border-slate-200/60 bg-white px-4">
         {collapsed ? (
           // Recolhida: mostra so a marca (funil) recortando a logo a esquerda.
           <div className="h-8 w-8 shrink-0 overflow-hidden">
@@ -284,7 +284,7 @@ export function Sidebar({
           />
         )}
       </div>
-
+ 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {navItems.map((item) => {
           const fullHref = `/${domain}${item.href}`;
@@ -293,27 +293,23 @@ export function Sidebar({
             (item.href !== "/dashboard" && pathname.startsWith(fullHref));
           const isDashboard = item.href === "/dashboard";
           const isActiveOnDashboard = !!isDashboard && !!isOnDashboard;
-
+ 
           // Item com sub-rotas (Dashboard). Em modo colapsado, mostra
           // só o ícone — clicar leva para a aba padrão.
           if (item.children && !collapsed) {
             return (
               <div key={item.href} className="space-y-1">
                 <div
-                  className={`flex items-center gap-1 rounded-lg ${
+                  className={`flex items-center gap-1 transition-all duration-200 rounded-lg ${
                     isActiveOnDashboard
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-gray-600"
+                      ? "bg-gradient-to-r from-blue-500/8 to-indigo-500/4 text-blue-600 shadow-sm font-semibold"
+                      : "text-slate-600 hover:bg-slate-200/40 hover:text-slate-900 hover:translate-x-0.5"
                   }`}
                 >
                   <Link
                     href={`${fullHref}?tab=${item.children[0].tab}`}
                     onClick={onMobileClose}
-                    className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActiveOnDashboard
-                        ? ""
-                        : "hover:bg-gray-50 hover:text-gray-900"
-                    }`}
+                    className="flex flex-1 items-center gap-3 px-3 py-2 text-sm font-medium transition-colors"
                   >
                     {item.icon}
                     {item.label}
@@ -326,10 +322,10 @@ export function Sidebar({
                         ? `Recolher submenu ${item.label}`
                         : `Expandir submenu ${item.label}`
                     }
-                    className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                    className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-200/60 hover:text-slate-700 transition-colors"
                   >
                     <svg
-                      className={`h-3.5 w-3.5 transition-transform ${
+                      className={`h-3.5 w-3.5 transition-transform duration-200 ${
                         dashOpen ? "rotate-180" : ""
                       }`}
                       fill="none"
@@ -342,7 +338,7 @@ export function Sidebar({
                   </button>
                 </div>
                 {dashOpen && (
-                  <div className="ml-3 space-y-0.5 border-l border-gray-100 pl-2">
+                  <div className="ml-3 space-y-0.5 border-l border-slate-200/60 pl-2">
                     {item.children.map((sub) => {
                       const isSubActive =
                         isOnDashboard && currentTab === sub.tab;
@@ -351,10 +347,10 @@ export function Sidebar({
                           key={sub.tab}
                           href={`${fullHref}?tab=${sub.tab}`}
                           onClick={onMobileClose}
-                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                          className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-all duration-200 ${
                             isSubActive
-                              ? "bg-blue-50 text-blue-700"
-                              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                              ? "bg-gradient-to-r from-blue-500/8 to-indigo-500/4 text-blue-600 shadow-sm font-semibold"
+                              : "text-slate-600 hover:bg-slate-200/40 hover:text-slate-900 hover:translate-x-0.5"
                           }`}
                         >
                           {sub.icon}
@@ -367,7 +363,7 @@ export function Sidebar({
               </div>
             );
           }
-
+ 
           // Item com sub-rotas, em modo colapsado: só ícone, vai pra
           // primeira aba ao clicar.
           if (item.children && collapsed) {
@@ -377,47 +373,51 @@ export function Sidebar({
                 href={`${fullHref}?tab=${item.children[0].tab}`}
                 title={item.label}
                 onClick={onMobileClose}
-                className={`flex items-center justify-center rounded-lg p-2 transition-colors ${
+                className={`flex items-center justify-center rounded-lg p-2 transition-all duration-200 ${
                   isActiveOnDashboard
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    ? "bg-blue-50 text-blue-600 shadow-sm scale-105"
+                    : "text-slate-600 hover:bg-slate-200/40 hover:text-slate-900"
                 }`}
               >
                 {item.icon}
               </Link>
             );
           }
-
+ 
           // Item simples. Mostra badge de novos leads (ultimas 24h)
           // quando aplicavel — so no item Leads e somente se count > 0.
           const showLeadsBadge =
             item.href === "/leads" && newLeadsCount > 0;
           const badgeLabel =
             newLeadsCount > 99 ? "99+" : String(newLeadsCount);
-
+ 
           return (
             <Link
               key={item.href}
               href={fullHref}
               title={collapsed ? item.label : undefined}
               onClick={onMobileClose}
-              className={`flex items-center gap-3 rounded-lg ${
-                collapsed ? "justify-center p-2" : "px-3 py-2"
-              } text-sm font-medium transition-colors ${
+              className={`flex items-center gap-3 transition-all duration-200 ${
+                collapsed ? "justify-center p-2 rounded-lg" : "px-3 py-2 rounded-lg"
+              } text-sm font-medium ${
                 isItemActive
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  ? collapsed
+                    ? "bg-blue-50 text-blue-600 shadow-sm scale-105"
+                    : "bg-gradient-to-r from-blue-500/8 to-indigo-500/4 text-blue-600 shadow-sm font-semibold"
+                  : `text-slate-600 hover:bg-slate-200/40 hover:text-slate-900 ${
+                      !collapsed ? "hover:translate-x-0.5" : ""
+                    }`
               }`}
             >
               <span className="relative inline-flex">
                 {item.icon}
                 {showLeadsBadge && collapsed && (
                   // Modo colapsado: numero pequeno sobre o icone, na cor
-                  // herdada do link (text-blue-700 quando ativo, text-gray-600
+                  // herdada do link (text-blue-600 quando ativo, text-slate-600
                   // quando inativo). Sem fundo nem borda — so o numero.
                   <span
                     aria-label={`${newLeadsCount} leads novos nas ultimas 24h`}
-                    className="absolute -right-2 -top-1.5 text-[10px] font-semibold leading-none"
+                    className="absolute -right-2 -top-1.5 text-[10px] font-semibold leading-none text-red-500"
                   >
                     {badgeLabel}
                   </span>
@@ -433,7 +433,7 @@ export function Sidebar({
                     <span
                       aria-label={`${newLeadsCount} leads novos nas ultimas 24h`}
                       title="Leads criados nas ultimas 24h"
-                      className="text-xs font-semibold tabular-nums"
+                      className="text-xs font-semibold tabular-nums text-red-500"
                     >
                       {badgeLabel}
                     </span>
@@ -444,15 +444,15 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      <div className="border-t border-gray-200 p-2">
+ 
+      <div className="border-t border-slate-200/60 p-2">
         <a
           href={`/ajuda?d=${encodeURIComponent(domain)}`}
           target="_blank"
           rel="noopener noreferrer"
           title="Ajuda e tutorial"
-          className={`flex items-center gap-3 rounded-lg text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-blue-700 ${
-            collapsed ? "justify-center p-2" : "px-3 py-2"
+          className={`flex items-center gap-3 rounded-lg text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-200/40 hover:text-blue-600 ${
+            collapsed ? "justify-center p-2" : "px-3 py-2 hover:translate-x-0.5"
           }`}
         >
           <svg
@@ -471,14 +471,14 @@ export function Sidebar({
           {!collapsed && (
             <span className="flex flex-1 flex-col">
               <span>Ajuda e tutorial</span>
-              <span className="text-[11px] font-normal text-gray-400">
+              <span className="text-[11px] font-normal text-slate-400">
                 Como usar o CRM (beta)
               </span>
             </span>
           )}
         </a>
         {!collapsed && (
-          <p className="mt-2 truncate px-3 text-xs text-gray-400">{domain}</p>
+          <p className="mt-2 truncate px-3 text-xs text-slate-400 font-semibold">{domain}</p>
         )}
       </div>
       </aside>

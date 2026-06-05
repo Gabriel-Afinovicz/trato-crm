@@ -522,14 +522,14 @@ export function AppointmentModal(props: AppointmentModalProps) {
         aria-modal="true"
         aria-labelledby={titleId}
         onKeyDown={handleKeyDown}
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl"
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between">
           <div>
-            <h3 id={titleId} className="text-base font-semibold text-gray-900">
+            <h3 id={titleId} className="text-base font-bold text-slate-800 tracking-tight">
               {isEdit ? "Editar consulta" : "Agendar consulta"}
             </h3>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-500 font-medium">
               O sistema bloqueia conflitos de profissional, sala e bloqueios
               da agenda no mesmo horário.
             </p>
@@ -538,7 +538,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
             type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -559,7 +559,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
           {!lockedLead ? (
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Lead *
               </label>
               <input
@@ -570,10 +570,10 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   setLeadId("");
                 }}
                 placeholder="Buscar lead..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
               />
               {leadOptions.length > 0 && !leadId && (
-                <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                <div className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-md py-1.5">
                   {leadOptions.map((l) => (
                     <button
                       key={l.id}
@@ -582,7 +582,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                         setLeadId(l.id);
                         setLeadSearch(l.name);
                       }}
-                      className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-blue-50"
+                      className="block w-full px-3.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 transition-colors font-medium cursor-pointer"
                     >
                       {l.name}
                     </button>
@@ -590,33 +590,33 @@ export function AppointmentModal(props: AppointmentModalProps) {
                 </div>
               )}
               {leadId && (
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-slate-500">
                   Selecionado:{" "}
-                  <span className="font-medium text-gray-800">{leadSearch}</span>
+                  <span className="font-semibold text-slate-800">{leadSearch}</span>
                 </p>
               )}
             </div>
           ) : (
-            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-600">
               Lead:{" "}
-              <span className="font-medium text-gray-900">{leadName}</span>
+              <span className="font-semibold text-slate-900">{leadName}</span>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Data e hora *
               </label>
               <input
                 type="datetime-local"
                 value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Duração (min)
               </label>
               <input
@@ -627,14 +627,14 @@ export function AppointmentModal(props: AppointmentModalProps) {
                 onChange={(e) =>
                   setDuration(parseInt(e.target.value, 10) || 30)
                 }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Profissional
               </label>
               <select
@@ -648,7 +648,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                     setVisibility("assigned_dentist");
                   }
                 }}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
               >
                 <option value="">Sem profissional</option>
                 {dentists.map((d) => (
@@ -659,13 +659,13 @@ export function AppointmentModal(props: AppointmentModalProps) {
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
                 Sala
               </label>
               <select
                 value={roomId}
                 onChange={(e) => handleRoomChange(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
               >
                 <option value="">Sem sala</option>
                 {roomsList.map((r) => (
@@ -679,8 +679,8 @@ export function AppointmentModal(props: AppointmentModalProps) {
           </div>
 
           {showRoomForm && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-700">
+            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+              <p className="mb-2 text-xs font-bold text-blue-900">
                 Nova sala
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -691,7 +691,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   onChange={(e) =>
                     setNewRoom((r) => ({ ...r, name: e.target.value }))
                   }
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
                   autoFocus
                 />
                 <div className="flex items-center gap-1.5">
@@ -701,9 +701,9 @@ export function AppointmentModal(props: AppointmentModalProps) {
                       type="button"
                       aria-label={`Cor ${c}`}
                       onClick={() => setNewRoom((r) => ({ ...r, color: c }))}
-                      className={`h-5 w-5 rounded-full ${
+                      className={`h-5 w-5 rounded-full cursor-pointer transition-transform duration-200 hover:scale-110 ${
                         newRoom.color === c
-                          ? "ring-2 ring-offset-1 ring-gray-400"
+                          ? "ring-2 ring-offset-2 ring-blue-500"
                           : ""
                       }`}
                       style={{ backgroundColor: c }}
@@ -711,14 +711,14 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   ))}
                 </div>
               </div>
-              <div className="mt-2 flex justify-end gap-2">
+              <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowRoomForm(false);
                     setNewRoom({ name: "", color: ROOM_PRESET_COLORS[0] });
                   }}
-                  className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -726,7 +726,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   type="button"
                   onClick={handleCreateRoom}
                   disabled={creatingRoom || !newRoom.name.trim()}
-                  className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                  className="rounded-lg bg-blue-600 px-4.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 shadow transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50"
                 >
                   {creatingRoom ? "Salvando..." : "Salvar sala"}
                 </button>
@@ -735,13 +735,13 @@ export function AppointmentModal(props: AppointmentModalProps) {
           )}
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
+            <label className="mb-1 block text-xs font-semibold text-slate-600">
               Serviço
             </label>
             <select
               value={procedureId}
               onChange={(e) => handleProcedureChange(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
             >
               <option value="">Nenhum</option>
               {proceduresList.map((p) => (
@@ -754,8 +754,8 @@ export function AppointmentModal(props: AppointmentModalProps) {
           </div>
 
           {showProcedureForm && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-700">
+            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+              <p className="mb-2 text-xs font-bold text-blue-900">
                 Novo serviço
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -766,7 +766,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   onChange={(e) =>
                     setNewProcedure((p) => ({ ...p, name: e.target.value }))
                   }
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
                   autoFocus
                 />
                 <input
@@ -778,7 +778,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   onChange={(e) =>
                     setNewProcedure((p) => ({ ...p, duration: e.target.value }))
                   }
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
                 />
                 <input
                   type="text"
@@ -787,10 +787,10 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   onChange={(e) =>
                     setNewProcedure((p) => ({ ...p, value: e.target.value }))
                   }
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
                 />
               </div>
-              <div className="mt-2 flex justify-end gap-2">
+              <div className="mt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -801,7 +801,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                       value: "",
                     });
                   }}
-                  className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
                 >
                   Cancelar
                 </button>
@@ -809,7 +809,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   type="button"
                   onClick={handleCreateProcedure}
                   disabled={creatingProcedure || !newProcedure.name.trim()}
-                  className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                  className="rounded-lg bg-blue-600 px-4.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 shadow transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50"
                 >
                   {creatingProcedure ? "Salvando..." : "Salvar serviço"}
                 </button>
@@ -818,20 +818,20 @@ export function AppointmentModal(props: AppointmentModalProps) {
           )}
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
+            <label className="mb-1 block text-xs font-semibold text-slate-600">
               Observações
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700 shadow-sm"
               placeholder="Anotações sobre o agendamento..."
             />
           </div>
 
-          <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4">
+            <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
               Visibilidade na agenda
             </label>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -850,28 +850,28 @@ export function AppointmentModal(props: AppointmentModalProps) {
                     type="button"
                     disabled={disabled}
                     onClick={() => setVisibility(v)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                    className={`rounded-lg border px-3.5 py-2 text-left text-xs font-semibold transition-all duration-200 cursor-pointer ${
                       active
-                        ? "border-blue-500 bg-blue-50 text-blue-800"
-                        : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                        ? "border-blue-300 bg-blue-50/40 text-blue-700 shadow-sm ring-4 ring-blue-500/5"
+                        : "border-slate-200/90 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900 hover:bg-slate-50/50"
+                    } disabled:cursor-not-allowed disabled:opacity-40`}
                   >
-                    <span className="block font-semibold">
+                    <span className="block font-bold">
                       {VISIBILITY_LABELS[v]}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] text-gray-500">
+            <p className="mt-2 text-[11px] font-medium text-slate-400">
               {VISIBILITY_HELP[visibility]}
             </p>
             {visibility === "role_tag" && (
-              <div className="mt-2">
+              <div className="mt-2.5">
                 <select
                   value={visibilityTagId}
                   onChange={(e) => setVisibilityTagId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
                 >
                   <option value="">Selecione uma função...</option>
                   {tags.map((t) => (
@@ -882,7 +882,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   ))}
                 </select>
                 {tags.length === 0 && (
-                  <p className="mt-1 text-[11px] text-gray-500">
+                  <p className="mt-1 text-[11px] text-slate-400 font-medium">
                     Nenhuma função cadastrada. Crie em Configurações &rsaquo; Equipe &rsaquo; Funções.
                   </p>
                 )}
@@ -891,16 +891,16 @@ export function AppointmentModal(props: AppointmentModalProps) {
           </div>
 
           {companyId && (
-            <details className="group rounded-lg border border-gray-200 bg-white">
-              <summary className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-gray-700">
+            <details className="group rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <summary className="flex cursor-pointer items-center justify-between gap-2 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50/50 transition-colors select-none">
                 <span>
                   Disponibilidade dos profissionais{" "}
-                  <span className="text-gray-400">
+                  <span className="text-slate-400 font-medium">
                     · {startsAt ? startsAt.slice(0, 10) : "—"}
                   </span>
                 </span>
                 <svg
-                  className="h-3.5 w-3.5 text-gray-400 transition-transform group-open:rotate-180"
+                  className="h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-180"
                   fill="none"
                   viewBox="0 0 24 24"
                   strokeWidth={2}
@@ -913,7 +913,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   />
                 </svg>
               </summary>
-              <div className="border-t border-gray-100 px-3 py-2">
+              <div className="border-t border-slate-100 px-3.5 py-3 bg-slate-50/20">
                 {startsAt ? (
                   <AvailabilityPanel
                     companyId={companyId}
@@ -921,7 +921,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                     highlightDentistId={dentistId || undefined}
                   />
                 ) : (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-slate-500 font-medium">
                     Informe data e hora para visualizar a disponibilidade.
                   </p>
                 )}
@@ -936,7 +936,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
                   type="button"
                   onClick={handleDelete}
                   disabled={deleting}
-                  className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  className="rounded-lg border border-rose-200 px-3.5 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50"
                 >
                   {deleting ? "Excluindo..." : "Excluir"}
                 </button>
@@ -946,14 +946,14 @@ export function AppointmentModal(props: AppointmentModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all active:scale-[0.97] cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 shadow-md transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50"
               >
                 {saving
                   ? isEdit

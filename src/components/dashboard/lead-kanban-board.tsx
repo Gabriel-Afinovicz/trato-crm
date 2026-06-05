@@ -881,19 +881,19 @@ export function LeadKanbanBoard({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       {/* Linha de filtros granulares do Kanban — bem compacta. A barra
           principal (mini-dash + período) já está no header das tabs. */}
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs py-1.5">
         <div className="relative min-w-[200px] flex-1">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar nome, telefone ou e-mail..."
-            className="w-full rounded-md border border-gray-300 bg-white px-2.5 py-1 pl-7 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 pl-8 text-xs font-medium text-slate-700 placeholder-slate-400 shadow-[0_1px_2px_rgba(0,0,0,0.01)] transition-all duration-300 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-500/10"
           />
           <svg
-            className="absolute left-2 top-1.5 h-3.5 w-3.5 text-gray-400"
+            className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400"
             fill="none"
             viewBox="0 0 24 24"
-            strokeWidth={2}
+            strokeWidth={2.5}
             stroke="currentColor"
           >
             <path
@@ -907,7 +907,7 @@ export function LeadKanbanBoard({
         <select
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm cursor-pointer transition-all duration-200 hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
         >
           <option value="all">Todos os responsáveis</option>
           <option value="unassigned">Sem responsável</option>
@@ -922,7 +922,7 @@ export function LeadKanbanBoard({
           <select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm cursor-pointer transition-all duration-200 hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
           >
             <option value="all">Todos setores</option>
             <option value="none">Sem setor</option>
@@ -934,16 +934,16 @@ export function LeadKanbanBoard({
           </select>
         )}
 
-        <div className="inline-flex rounded-md border border-gray-300 bg-white p-0.5">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner">
           {(["none", "dentist"] as LaneMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               onClick={() => setLaneMode(mode)}
-              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+              className={`rounded-md px-3 py-1 text-[11px] font-semibold transition-all duration-250 active:scale-[0.96] cursor-pointer ${
                 laneMode === mode
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-600 hover:bg-gray-50"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
             >
               {mode === "none" ? "Sem raias" : "Raias"}
@@ -954,12 +954,13 @@ export function LeadKanbanBoard({
         <button
           type="button"
           onClick={() => setShowInactiveOnly((v) => !v)}
-          className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+          className={`rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 active:scale-[0.97] shadow-sm flex items-center gap-1.5 cursor-pointer ${
             showInactiveOnly
-              ? "border-amber-400 bg-amber-50 text-amber-700"
-              : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+              ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100/60 ring-2 ring-amber-500/10"
+              : "border-slate-200/90 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
           }`}
         >
+          <span className={`h-1.5 w-1.5 rounded-full ${showInactiveOnly ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`} />
           Inativos · {stats.inactive}
         </button>
 
@@ -977,19 +978,18 @@ export function LeadKanbanBoard({
               setShowInactiveOnly(false);
               setLaneMode("none");
             }}
-            className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all duration-200 active:scale-[0.97] shadow-sm cursor-pointer"
           >
             Limpar
           </button>
         )}
 
-        <div className="ml-auto hidden items-center gap-3 text-xs text-gray-500 sm:flex">
-          <span>
-            <span className="font-semibold text-gray-700">{stats.total}</span>{" "}
-            leads
+        <div className="ml-auto hidden items-center gap-3 text-xs text-slate-500 sm:flex">
+          <span className="font-medium">
+            Total: <span className="font-bold text-slate-700">{stats.total}</span> leads
           </span>
           {stats.unassigned > 0 && (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 border border-amber-100 shadow-[0_1px_2px_rgba(0,0,0,0.01)]">
               {stats.unassigned} sem responsável
             </span>
           )}
@@ -1025,7 +1025,7 @@ export function LeadKanbanBoard({
               Sempre ocupa altura visível quando há overflow (track largo
               e thumb com cor forte para ficar evidente). */}
           {hasHorizontalOverflow && (
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2.5 flex items-center gap-2.5">
               <button
                 type="button"
                 aria-label="Rolar colunas para a esquerda"
@@ -1033,7 +1033,7 @@ export function LeadKanbanBoard({
                   const cols = columnsRef.current;
                   if (cols) cols.scrollBy({ left: -320, behavior: "smooth" });
                 }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 active:scale-[0.93] transition-all duration-200 cursor-pointer"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
@@ -1041,7 +1041,7 @@ export function LeadKanbanBoard({
               </button>
               <div
                 ref={topScrollRef}
-                className="h-4 flex-1 overflow-x-auto overflow-y-hidden rounded-full bg-gray-200 [&::-webkit-scrollbar]:h-4 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-500 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-gray-200 [&::-webkit-scrollbar-track]:bg-gray-200 [&::-webkit-scrollbar-track]:rounded-full"
+                className="h-3.5 flex-1 overflow-x-auto overflow-y-hidden rounded-full bg-slate-100 border border-slate-200/50 p-0.5 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400/60 hover:[&::-webkit-scrollbar-thumb]:bg-slate-500/80 [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-track]:bg-transparent"
                 aria-hidden
               >
                 <div
@@ -1058,7 +1058,7 @@ export function LeadKanbanBoard({
                   const cols = columnsRef.current;
                   if (cols) cols.scrollBy({ left: 320, behavior: "smooth" });
                 }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 active:scale-[0.93] transition-all duration-200 cursor-pointer"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />

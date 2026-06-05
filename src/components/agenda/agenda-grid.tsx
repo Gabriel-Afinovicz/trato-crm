@@ -76,15 +76,15 @@ function timeToMinutes(t: string) {
 function statusColor(status: string) {
   switch (status) {
     case "confirmed":
-      return "bg-emerald-50 border-emerald-300 text-emerald-900";
+      return "bg-emerald-50/85 border-emerald-200/80 text-emerald-800 hover:bg-emerald-100/60";
     case "completed":
-      return "bg-sky-50 border-sky-300 text-sky-900";
+      return "bg-sky-50/85 border-sky-200/80 text-sky-800 hover:bg-sky-100/60";
     case "cancelled":
-      return "bg-gray-50 border-gray-300 text-gray-500 line-through";
+      return "bg-slate-50/85 border-slate-200/80 text-slate-400 line-through hover:bg-slate-100/60";
     case "no_show":
-      return "bg-rose-50 border-rose-300 text-rose-800";
+      return "bg-rose-50/85 border-rose-200/80 text-rose-800 hover:bg-rose-100/60";
     default:
-      return "bg-blue-50 border-blue-300 text-blue-900";
+      return "bg-blue-50/85 border-blue-200/80 text-blue-800 hover:bg-blue-100/60";
   }
 }
 
@@ -152,21 +152,21 @@ function DraggableAppointment({
         if (isDragging) return;
         onSelect();
       }}
-      className={`absolute left-1 right-1 rounded-md border px-2 py-1 text-left text-[11px] shadow-sm transition hover:shadow ${className}`}
+      className={`absolute left-1 right-1 rounded-lg border px-2.5 py-1.5 text-left text-[11px] shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-grab active:cursor-grabbing ${className}`}
       style={style}
     >
       <div className="flex items-center gap-1">
-        <span className="truncate font-semibold">{appointment.lead_name}</span>
+        <span className="truncate font-semibold text-slate-800 tracking-tight">{appointment.lead_name}</span>
         {noShow && (
           <span
-            className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700"
+            className="rounded-full bg-rose-100/80 px-1.5 py-0.25 text-[9px] font-bold text-rose-700 border border-rose-200/50"
             title="Histórico de falta"
           >
             !
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1 text-[10px] opacity-80">
+      <div className="flex items-center gap-1 text-[10px] opacity-80 font-medium">
         <span>
           {fmtHour(s.getHours(), s.getMinutes())}
           {"–"}
@@ -175,7 +175,7 @@ function DraggableAppointment({
         {appointment.room_name && <span>· {appointment.room_name}</span>}
       </div>
       {appointment.procedure_name && (
-        <div className="truncate text-[10px] opacity-75">
+        <div className="truncate text-[10px] opacity-75 font-semibold">
           {appointment.procedure_name}
         </div>
       )}
@@ -200,8 +200,8 @@ function DroppableColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`relative border-l border-gray-100 bg-white ${
-        isOver ? "ring-2 ring-blue-300/50" : ""
+      className={`relative border-r border-slate-100 bg-white transition-all duration-300 ${
+        isOver ? "bg-blue-50/20 ring-2 ring-blue-400/20" : ""
       }`}
       style={{ height: totalHeight }}
       onClick={onClickEmpty}
@@ -332,7 +332,7 @@ export function AgendaGrid({
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -350,24 +350,24 @@ export function AgendaGrid({
             gridTemplateColumns: `60px repeat(${columns.length}, minmax(180px, 1fr))`,
           }}
         >
-          <div className="border-b border-r border-gray-200 bg-gray-50 p-2" />
+          <div className="border-b border-r border-slate-200 bg-slate-50/50 p-2" />
           {columns.map((col, idx) => {
             const holiday = isHoliday(col.day);
             return (
               <div
                 key={`${col.day.toISOString()}-${col.resourceId ?? idx}`}
-                className="border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-center"
+                className="border-b border-r border-slate-200 bg-slate-50/50 px-3.5 py-3 text-center transition-colors duration-200"
               >
-                <div className="text-[11px] uppercase text-gray-500">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {fmtDay(col.day)}
                 </div>
                 {col.resourceName && (
-                  <div className="mt-0.5 truncate text-[11px] font-medium text-gray-700">
+                  <div className="mt-1.5 truncate text-[11px] font-bold text-slate-700 tracking-tight">
                     {col.resourceName}
                   </div>
                 )}
                 {holiday && (
-                  <div className="mt-0.5 truncate text-[10px] text-rose-600">
+                  <div className="mt-1 truncate text-[10px] font-semibold text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-1.5 py-0.5">
                     {holiday}
                   </div>
                 )}
@@ -376,14 +376,14 @@ export function AgendaGrid({
           })}
 
           <div
-            className="relative bg-gray-50"
+            className="relative bg-slate-50/30 border-r border-slate-100"
             style={{ height: totalHeight }}
           >
             {Array.from({ length: hourBoundsEnd - hourBoundsStart + 1 }).map(
               (_, i) => (
                 <div
                   key={i}
-                  className="absolute left-0 right-0 border-t border-gray-200 pr-2 text-right text-[10px] text-gray-500"
+                  className="absolute left-0 right-0 border-t border-slate-200/60 pr-2.5 text-right text-[10px] font-bold text-slate-400"
                   style={{ top: i * 60 * PX_PER_MIN - 6 }}
                 >
                   {fmtHour(hourBoundsStart + i, 0)}
@@ -484,7 +484,7 @@ export function AgendaGrid({
                     <div
                       key={i}
                       className={`pointer-events-none absolute inset-x-0 border-t ${
-                        isHour ? "border-gray-200" : "border-gray-100"
+                        isHour ? "border-slate-200/80" : "border-slate-100/60"
                       }`}
                       style={{ top }}
                     />
@@ -494,12 +494,12 @@ export function AgendaGrid({
                 {closedBands.map((band, i) => (
                   <div
                     key={`closed-${i}`}
-                    className="pointer-events-none absolute inset-x-0 bg-gray-100/70"
+                    className="pointer-events-none absolute inset-x-0 bg-slate-50/40"
                     style={{
                       top: band.topMin * PX_PER_MIN,
                       height: band.durMin * PX_PER_MIN,
                       backgroundImage:
-                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(0,0,0,0.04) 6px 12px)",
+                        "repeating-linear-gradient(45deg, transparent 0 6px, rgba(0,0,0,0.02) 6px 12px)",
                     }}
                     aria-hidden
                   />
@@ -509,8 +509,8 @@ export function AgendaGrid({
                   const dayStart = new Date(col.day);
                   dayStart.setHours(hourBoundsStart, 0, 0, 0);
                   const sMs = Math.max(
-                    0,
-                    new Date(b.starts_at).getTime() - dayStart.getTime()
+                     0,
+                     new Date(b.starts_at).getTime() - dayStart.getTime()
                   );
                   const eMs =
                     new Date(b.ends_at).getTime() - dayStart.getTime();
@@ -519,13 +519,13 @@ export function AgendaGrid({
                   return (
                     <div
                       key={b.id}
-                      className="pointer-events-none absolute left-1 right-1 rounded-md border border-dashed border-gray-300 bg-gray-100/80 px-2 py-1 text-[11px] text-gray-600"
+                      className="pointer-events-none absolute left-1 right-1 rounded-lg border border-dashed border-slate-300 bg-slate-100/90 px-2.5 py-1.5 text-[11px] text-slate-500 font-medium"
                       style={{
                         top: topMin * PX_PER_MIN,
                         height: durMin * PX_PER_MIN - 2,
                       }}
                     >
-                      <div className="font-medium">Bloqueio</div>
+                      <div className="font-semibold text-slate-700">Bloqueio</div>
                       {b.reason && (
                         <div className="truncate text-[10px] opacity-80">
                           {b.reason}
@@ -543,14 +543,14 @@ export function AgendaGrid({
                       (ps.getHours() - hourBoundsStart) * 60 + ps.getMinutes();
                     return (
                       <div
-                        className="pointer-events-none absolute left-1 right-1 rounded-md border-2 border-dashed border-blue-400 bg-blue-50/70 px-2 py-1 text-[11px] text-blue-700"
+                        className="pointer-events-none absolute left-1 right-1 rounded-lg border-2 border-dashed border-blue-400 bg-blue-50/60 px-2.5 py-1.5 text-[11px] text-blue-700 font-semibold shadow-sm"
                         style={{
                           top: topMin * PX_PER_MIN,
                           height: pendingSlot.durationMin * PX_PER_MIN - 2,
                         }}
                       >
-                        <div className="font-medium">Novo agendamento…</div>
-                        <div className="text-[10px] opacity-75">
+                        <div className="font-bold">Novo agendamento…</div>
+                        <div className="text-[10px] opacity-80">
                           {fmtHour(ps.getHours(), ps.getMinutes())}
                         </div>
                       </div>
@@ -560,7 +560,7 @@ export function AgendaGrid({
 
                 {ghostInfo && (
                   <div
-                    className="pointer-events-none absolute left-1 right-1 rounded-md border-2 border-dashed border-blue-400 bg-blue-100/40"
+                    className="pointer-events-none absolute left-1 right-1 rounded-lg border-2 border-dashed border-blue-400 bg-blue-100/40"
                     style={{
                       top: ghostInfo.topMin * PX_PER_MIN,
                       height: ghostInfo.durMin * PX_PER_MIN - 2,
