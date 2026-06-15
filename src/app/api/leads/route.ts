@@ -6,6 +6,7 @@ import {
   type LeadListFilters,
 } from "@/lib/supabase/leads-data";
 import { createClient } from "@/lib/supabase/server";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import { STAGE_CATEGORIES, type StageCategory } from "@/lib/types/database";
 import { syncLeadCreated } from "@/lib/integrations/clinicorp-service";
@@ -144,6 +145,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const visibility = await getSectorVisibility(profile, role);
+
   const result = await listLeads(
     companyId,
     {
@@ -155,6 +158,7 @@ export async function GET(req: NextRequest) {
       assigneeId,
       sectorMode,
       sectorId,
+      allowedSectorIds: visibility.allowedSectorIds,
       sourceId,
       tagIds,
       page,
@@ -203,6 +207,36 @@ export async function POST(req: NextRequest) {
       { error: "lead.name required" },
       { status: 400 }
     );
+  }
+
+  // Server-side email validation
+  if (lead.email) {
+    const emailStr = String(lead.email).trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailStr)) {
+      return NextResponse.json(
+        { error: "E-mail inválido." },
+        { status: 400 }
+      );
+    }
+    lead.email = emailStr;
+  }
+
+  // Server-side phone validation and normalization
+  if (lead.phone) {
+    const phoneStr = String(lead.phone).trim();
+    const digits = phoneStr.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 15) {
+      return NextResponse.json(
+        { error: "O telefone deve ter entre 10 e 15 dígitos." },
+        { status: 400 }
+      );
+    }
+    if (digits.length === 10 || digits.length === 11) {
+      lead.phone = `+55${digits}`;
+    } else {
+      lead.phone = `+${digits}`;
+    }
   }
 
   // Encaminha tudo para a RPC transacional. Mesmo no caso "lead sem

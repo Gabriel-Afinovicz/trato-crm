@@ -1,9 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   canonicalRemoteJid,
   isIndividualJid,
   jidToPhone,
+  onlyDigits,
+  phoneMatchCandidates,
   siblingJid,
 } from "@/lib/evolution/phone";
 import type {
@@ -14,6 +17,102 @@ import {
   mergeReactions,
   normalizeReactions,
 } from "@/lib/whatsapp/reactions";
+
+/**
+ * Auto-vinculo de lead a uma conversa do WhatsApp.
+ *
+ * Disparado quando chega uma mensagem RECEBIDA (nao fromMe) de uma conversa
+ * individual sem `lead_id`. Primeiro tenta casar um lead existente da empresa
+ * pelo telefone (normalizado, com variacao do nono digito); se achar, apenas
+ * vincula. Se nao achar, cria um lead novo com o nome do WhatsApp (ou o
+ * telefone formatado) — os triggers do banco cuidam de etapa, posicao no
+ * kanban e setor padrao (CRC Leads).
+ *
+ * Idempotente e best-effort: nunca lanca (falha so loga), para nao interromper
+ * a ingestao da mensagem. Respeita desvinculo manual (`lead_unlinked_at`).
+ */
+async function ensureLeadForChat(
+  supabaseAdmin: SupabaseClient,
+  args: {
+    companyId: string;
+    chatId: string;
+    remoteJid: string;
+    pushName: string | null;
+    currentLeadId: string | null;
+    unlinkedAt: string | null;
+  }
+): Promise<void> {
+  const { companyId, chatId, remoteJid, pushName, currentLeadId, unlinkedAt } =
+    args;
+  if (currentLeadId) return; // ja vinculado
+  if (unlinkedAt) return; // operador desvinculou manualmente; nao re-vincular
+
+  const digits = onlyDigits(jidToPhone(remoteJid));
+  if (digits.length < 10) return; // sem telefone utilizavel
+
+  try {
+    // 1) Tenta casar lead existente por telefone (varios formatos gravados).
+    const candidates = phoneMatchCandidates(remoteJid);
+    let leadId: string | null = null;
+    if (candidates.length > 0) {
+      const { data: existing } = await supabaseAdmin
+        .from("leads")
+        .select("id")
+        .eq("company_id", companyId)
+        .in("phone", candidates)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      leadId = (existing as { id: string } | null)?.id ?? null;
+    }
+
+    // 2) Sem lead existente: cria um novo. Telefone no formato canonico do
+    // CRM (+55DDDNUMERO). Nome do WhatsApp ou telefone como fallback.
+    if (!leadId) {
+      const phone = `+${digits}`;
+      const name = pushName?.trim() || phone;
+
+      // Fonte "WhatsApp" (seed padrao da empresa), quando existir.
+      const { data: source } = await supabaseAdmin
+        .from("lead_sources")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("name", "WhatsApp")
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+      const sourceId = (source as { id: string } | null)?.id ?? null;
+
+      const { data: created, error: createErr } = await supabaseAdmin
+        .from("leads")
+        .insert({
+          company_id: companyId,
+          name,
+          phone,
+          source_id: sourceId,
+        })
+        .select("id")
+        .single();
+      if (createErr) {
+        // Ex.: empresa sem pipeline_stage ativo (trigger set_lead_default_stage
+        // lanca). Nao interrompe a ingestao da mensagem.
+        console.error("[webhook] auto-create lead falhou", createErr);
+        return;
+      }
+      leadId = (created as { id: string } | null)?.id ?? null;
+    }
+
+    if (leadId) {
+      await supabaseAdmin
+        .from("whatsapp_chats")
+        .update({ lead_id: leadId })
+        .eq("id", chatId)
+        .is("lead_id", null);
+    }
+  } catch (err) {
+    console.error("[webhook] ensureLeadForChat erro", err);
+  }
+}
 
 interface RouteParams {
   params: Promise<{ instance: string }>;
@@ -1032,11 +1131,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const { data: chatBefore } = await supabaseAdmin
       .from("whatsapp_chats")
-      .select("unread_count, name")
+      .select("unread_count, name, lead_id, lead_unlinked_at")
       .eq("id", chatId)
       .single();
     const chatBeforeRow =
-      (chatBefore as { unread_count: number; name: string | null } | null) ?? null;
+      (chatBefore as {
+        unread_count: number;
+        name: string | null;
+        lead_id: string | null;
+        lead_unlinked_at: string | null;
+      } | null) ?? null;
     const newUnread = fromMe
       ? 0
       : (chatBeforeRow?.unread_count ?? 0) + 1;
@@ -1055,6 +1159,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       updateChat.name = data.pushName;
     }
     await supabaseAdmin.from("whatsapp_chats").update(updateChat).eq("id", chatId);
+
+    // Auto-vinculo/criacao de lead: so para mensagens RECEBIDAS (o contato
+    // que escreve e um possivel cliente). Mensagens enviadas pela clinica
+    // (fromMe) nao disparam criacao automatica.
+    if (!fromMe) {
+      await ensureLeadForChat(supabaseAdmin, {
+        companyId: instanceRow.company_id,
+        chatId,
+        remoteJid,
+        pushName: data.pushName ?? data.contact?.name ?? null,
+        currentLeadId: chatBeforeRow?.lead_id ?? null,
+        unlinkedAt: chatBeforeRow?.lead_unlinked_at ?? null,
+      });
+    }
 
     return NextResponse.json({ ok: true });
   }

@@ -221,13 +221,18 @@ export function LeadKanbanBoard({
     [filters]
   );
   const [sectors, setSectors] = useState<Sector[]>([]);
+  // Operador restrito por setor: o dropdown "Todos setores" some (o
+  // servidor ja limita os leads aos setores permitidos).
+  const [sectorsRestricted, setSectorsRestricted] = useState(false);
   useEffect(() => {
     if (!companyId) return;
     let cancelled = false;
     fetch(`/api/sectors?companyId=${companyId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { items?: Sector[] } | null) => {
-        if (!cancelled && data?.items) setSectors(data.items);
+      .then((data: { items?: Sector[]; restricted?: boolean } | null) => {
+        if (cancelled || !data?.items) return;
+        setSectors(data.items);
+        setSectorsRestricted(Boolean(data.restricted));
       })
       .catch(() => {});
     return () => {
@@ -918,7 +923,7 @@ export function LeadKanbanBoard({
           ))}
         </select>
 
-        {sectors.length > 0 && (
+        {sectors.length > 0 && !sectorsRestricted && (
           <select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
@@ -932,6 +937,19 @@ export function LeadKanbanBoard({
               </option>
             ))}
           </select>
+        )}
+        {sectorsRestricted && sectors.length > 0 && (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500"
+            title="Você vê apenas os leads do seu setor"
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: sectors[0].color }}
+              aria-hidden
+            />
+            {sectors[0].name}
+          </span>
         )}
 
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner">

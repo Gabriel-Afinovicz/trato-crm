@@ -16,6 +16,20 @@ function isExpectedAuthError(err: unknown): boolean {
   ) {
     return true;
   }
+  // AuthSessionMissingError: requisicao sem sessao de login (deslogado,
+  // primeira carga ou token expirado). E uma condicao esperada — silencia
+  // o log e deixa o fluxo seguir como "nao autenticado". Essa classe nao
+  // estende AuthApiError e vem com code undefined, entao detectamos pela
+  // flag __isAuthError + name.
+  if (
+    err &&
+    typeof err === "object" &&
+    "__isAuthError" in err &&
+    (err as { __isAuthError?: boolean }).__isAuthError === true
+  ) {
+    const name = (err as { name?: string }).name;
+    if (name === "AuthSessionMissingError") return true;
+  }
   return false;
 }
 

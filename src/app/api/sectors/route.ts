@@ -1,20 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAuthSession } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import type { Sector } from "@/lib/types/database";
 
-// CRUD de Setores. Lista para qualquer membro da clinica; create restrita
-// a admin via policy RLS `sectors_manage` (definida na migration). Mantemos
-// o mesmo padrao de validacao das outras APIs (companyId no query/body,
-// checagem cruzada com a sessao). RLS faz a defesa real; estas checagens
-// existem so para devolver 4xx amigaveis ao client.
-
-const DEFAULT_COLOR = "#6b7280";
-
-function isValidHexColor(value: string): boolean {
-  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value);
-}
+// Setores sao FIXOS (CRC Leads e CRC Comercial, criados pela migration
+// fixed_crc_sectors e pelo seed de novas empresas). GET lista para qualquer
+// membro da clinica. Criacao via API esta bloqueada — os setores fixos so
+// podem ser renomeados/recoloridos via PATCH /api/sectors/:id. O banco
+// reforca com o trigger trg_protect_system_sectors.
 
 export async function GET(req: NextRequest) {
   const { user, profile, role } = await getAuthSession();
@@ -53,78 +48,26 @@ export async function GET(req: NextRequest) {
     const f = friendlyDbError(error, "list");
     return NextResponse.json({ error: f.message }, { status: f.status });
   }
-  return NextResponse.json({ items: (data as Sector[]) ?? [] });
+
+  // Operador restrito recebe apenas os setores que pode ver; o flag
+  // `restricted` permite a UI esconder o filtro "Todos setores".
+  const visibility = await getSectorVisibility(profile, role);
+  let items = (data as Sector[]) ?? [];
+  if (visibility.restricted && visibility.allowedSectorIds) {
+    const allowed = new Set(visibility.allowedSectorIds);
+    items = items.filter((s) => allowed.has(s.id));
+  }
+  return NextResponse.json({ items, restricted: visibility.restricted });
 }
 
-interface CreatePayload {
-  companyId?: string;
-  name?: string;
-  color?: string;
-}
-
-export async function POST(req: NextRequest) {
-  const { user, profile, role } = await getAuthSession();
-  if (!user || !profile) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
-  let body: CreatePayload;
-  try {
-    body = (await req.json()) as CreatePayload;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const companyId = body.companyId;
-  const rawName = body.name?.trim();
-  const color = body.color?.trim() || DEFAULT_COLOR;
-
-  if (!companyId) {
-    return NextResponse.json(
-      { error: "companyId required" },
-      { status: 400 }
-    );
-  }
-  if (!rawName) {
-    return NextResponse.json({ error: "name required" }, { status: 400 });
-  }
-  if (!isValidHexColor(color)) {
-    return NextResponse.json(
-      { error: "color must be a valid #RRGGBB hex" },
-      { status: 400 }
-    );
-  }
-
-  const isOwnAdmin = role === "admin" && profile.company_id === companyId;
-  const isSuperAdmin = role === "super_admin";
-  if (!isOwnAdmin && !isSuperAdmin) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("sectors")
-    .insert({ company_id: companyId, name: rawName, color })
-    .select("*")
-    .single();
-
-  if (error) {
-    // Conflito de nome unico (idx_sectors_company_name_active) tem
-    // copia especifica para o usuario entender — restante recai no
-    // helper generico de erros amigaveis.
-    if (error.code === "23505") {
-      return NextResponse.json(
-        {
-          error:
-            "Ja existe um setor ativo com este nome nesta organizacao.",
-        },
-        { status: 409 }
-      );
-    }
-    console.error("[POST /api/sectors] db error", error);
-    const f = friendlyDbError(error, "save_sector");
-    return NextResponse.json({ error: f.message }, { status: f.status });
-  }
-
-  return NextResponse.json({ sector: data as Sector });
+export async function POST() {
+  // Setores sao fixos no sistema (CRC Leads / CRC Comercial). A criacao
+  // foi desativada; os dois setores podem apenas ser renomeados.
+  return NextResponse.json(
+    {
+      error:
+        "Os setores são fixos (CRC Leads e CRC Comercial) e não podem ser criados. Você pode renomeá-los em Configurações ▸ Setores.",
+    },
+    { status: 403 }
+  );
 }

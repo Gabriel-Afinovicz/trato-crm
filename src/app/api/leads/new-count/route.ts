@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 
 /**
  * Quantidade de leads novos criados nas ultimas 24h da company do usuario.
@@ -10,18 +11,24 @@ import { createClient } from "@/lib/supabase/server";
  * a tela. Retorna 0 se o usuario nao estiver autenticado ou sem company.
  */
 export async function GET() {
-  const { user, profile } = await getAuthSession();
+  const { user, profile, role } = await getAuthSession();
   if (!user || !profile?.company_id) {
     return NextResponse.json({ count: 0 });
   }
 
+  const visibility = await getSectorVisibility(profile, role);
+
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const supabase = await createClient();
-  const { count, error } = await supabase
+  let query = supabase
     .from("leads")
     .select("id", { head: true, count: "exact" })
     .eq("company_id", profile.company_id)
     .gte("created_at", since);
+  if (visibility.allowedSectorIds && visibility.allowedSectorIds.length > 0) {
+    query = query.in("sector_id", visibility.allowedSectorIds);
+  }
+  const { count, error } = await query;
 
   if (error) {
     console.error("[GET /api/leads/new-count] db error", error);

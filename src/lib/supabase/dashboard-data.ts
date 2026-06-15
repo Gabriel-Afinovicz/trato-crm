@@ -29,20 +29,29 @@ export const DEFAULT_CLINIC_GOALS: ClinicAnalyticsGoals = {
   closing_pct: 30,
 };
 
-export const getDashboardData = cache(async (companyId: string) => {
-  const supabase = await createClient();
+export const getDashboardData = cache(
+  async (companyId: string, allowedSectorIds?: string[] | null) => {
+    const supabase = await createClient();
 
-  const { data: recentLeads } = await supabase
-    .from("leads")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false })
-    .limit(10);
+    let query = supabase
+      .from("leads")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(10);
 
-  return {
-    recentLeads: (recentLeads as unknown as Lead[]) ?? [],
-  };
-});
+    // Visibilidade por setor (operador restrito).
+    if (allowedSectorIds && allowedSectorIds.length > 0) {
+      query = query.in("sector_id", allowedSectorIds);
+    }
+
+    const { data: recentLeads } = await query;
+
+    return {
+      recentLeads: (recentLeads as unknown as Lead[]) ?? [],
+    };
+  }
+);
 
 /**
  * Intervalo `[start, end)` cobrindo o mês corrente — do dia 1 às 00:00
@@ -186,6 +195,8 @@ export interface GetKanbanDataOptions {
    * que ainda não controlam período (ex: callers internos antigos).
    */
   range?: { start: Date; end: Date };
+  /** Visibilidade por setor (operador restrito). Null = sem restrição. */
+  allowedSectorIds?: string[] | null;
 }
 
 export const getKanbanData = async (
@@ -211,6 +222,10 @@ export const getKanbanData = async (
     leadsQuery = leadsQuery
       .gte("created_at", options.range.start.toISOString())
       .lt("created_at", options.range.end.toISOString());
+  }
+
+  if (options.allowedSectorIds && options.allowedSectorIds.length > 0) {
+    leadsQuery = leadsQuery.in("sector_id", options.allowedSectorIds);
   }
 
   const [

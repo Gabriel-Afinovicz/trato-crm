@@ -496,6 +496,10 @@ export interface Sector {
   name: string;
   color: string;
   is_active: boolean;
+  // Setores fixos do sistema: 'crc_leads' | 'crc_comercial'. Null em setores
+  // legados (desativados pela migration fixed_crc_sectors). Setores com
+  // system_key nao podem ser criados/excluidos/desativados via API.
+  system_key: "crc_leads" | "crc_comercial" | null;
   created_at: string;
   updated_at: string;
 }
@@ -549,6 +553,12 @@ export interface WhatsAppChat {
   remote_jid: string;
   name: string | null;
   lead_id: string | null;
+  /**
+   * Marca quando o operador desvinculou manualmente o lead desta conversa.
+   * O auto-vinculo do webhook ignora conversas com este campo preenchido,
+   * respeitando a decisao manual. Null = nunca desvinculado manualmente.
+   */
+  lead_unlinked_at: string | null;
   last_message_at: string | null;
   last_message_preview: string | null;
   /**
@@ -859,8 +869,8 @@ export interface Database {
       };
       sectors: {
         Row: Sector;
-        Insert: Omit<Sector, "id" | "created_at" | "updated_at" | "is_active" | "color"> &
-          Partial<Pick<Sector, "is_active" | "color">>;
+        Insert: Omit<Sector, "id" | "created_at" | "updated_at" | "is_active" | "color" | "system_key"> &
+          Partial<Pick<Sector, "is_active" | "color" | "system_key">>;
         Update: Partial<Omit<Sector, "id" | "created_at" | "updated_at">>;
       };
       user_sector_assignments: {
@@ -911,6 +921,7 @@ export interface Database {
           | "last_message_at"
           | "last_message_preview"
           | "lead_id"
+          | "lead_unlinked_at"
           | "profile_picture_url"
         > &
           Partial<
@@ -922,6 +933,7 @@ export interface Database {
               | "last_message_at"
               | "last_message_preview"
               | "lead_id"
+              | "lead_unlinked_at"
               | "profile_picture_url"
             >
           >;

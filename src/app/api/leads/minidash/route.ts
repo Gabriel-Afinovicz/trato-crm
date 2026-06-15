@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getAuthSession } from "@/lib/supabase/cached-data";
 import { defaultMonthRange } from "@/lib/supabase/dashboard-data";
 import { getKanbanMinidash } from "@/lib/supabase/leads-data";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 
 /**
  * Mini-dash de leads (cohort agrupada por categoria).
@@ -36,8 +37,16 @@ export async function GET(req: NextRequest) {
   const sectorParam = searchParams.get("sector");
   // "none" reservado para futuro (cohort de leads sem setor); por ora
   // tratamos como nao filtrar. Filtragem efetiva so para uuids reais.
-  const sectorId =
-    sectorParam && sectorParam !== "none" ? sectorParam : null;
+  let sectorId = sectorParam && sectorParam !== "none" ? sectorParam : null;
+
+  // Operador restrito: forca o setor permitido, ignorando o filtro da UI.
+  const visibility = await getSectorVisibility(profile, role);
+  if (visibility.restricted) {
+    sectorId =
+      sectorId && visibility.allowedSectorIds?.includes(sectorId)
+        ? sectorId
+        : visibility.singleSectorId;
+  }
 
   let range: { start: Date; end: Date };
   if (startParam && endParam) {

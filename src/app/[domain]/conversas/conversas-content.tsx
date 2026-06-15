@@ -13,6 +13,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/components/layout/session-provider";
 import { LeadDetailsView } from "@/components/leads/lead-details-view";
+import { LeadForm } from "@/components/leads/lead-form";
 import type {
   CustomField,
   CustomFieldValue,
@@ -2075,9 +2076,10 @@ export function ConversasContent({
   async function linkLead(leadId: string) {
     if (!activeChat) return;
     const supabase = createClient();
+    // Limpa lead_unlinked_at: vinculo manual reabilita o auto-vinculo futuro.
     await supabase
       .from("whatsapp_chats")
-      .update({ lead_id: leadId })
+      .update({ lead_id: leadId, lead_unlinked_at: null })
       .eq("id", activeChat.id);
     setShowLinkLead(false);
     setLeadSearch("");
@@ -2086,9 +2088,11 @@ export function ConversasContent({
   async function unlinkLead() {
     if (!activeChat) return;
     const supabase = createClient();
+    // Marca lead_unlinked_at para o webhook NAO re-vincular automaticamente
+    // esta conversa (respeita a decisao manual do operador).
     await supabase
       .from("whatsapp_chats")
-      .update({ lead_id: null })
+      .update({ lead_id: null, lead_unlinked_at: new Date().toISOString() })
       .eq("id", activeChat.id);
   }
 
@@ -2283,42 +2287,11 @@ export function ConversasContent({
             />
           </div>
 
-          {syncInProgress && (
-            <div className="border-b border-emerald-100 bg-emerald-50 px-4 py-3">
-              <div className="flex items-start gap-3">
-                <svg
-                  className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-emerald-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  />
-                </svg>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-emerald-900">
-                    Sincronizando suas conversas
-                  </p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-emerald-800">
-                    Estamos buscando seus contatos e mensagens recentes do
-                    WhatsApp. Isso pode levar de alguns segundos a 1–2 minutos.
-                    Pode continuar usando o CRM normalmente — a lista vai
-                    aparecer automaticamente quando terminar.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* O banner "Sincronizando..." in-list foi removido: durante a
+              sincronizacao a propria pagina mostra o card de carregamento em
+              tela cheia (WhatsAppConnectLoader), e o progresso tambem aparece
+              no indicador global no topo. Aqui a lista so e exibida quando ja
+              esta atualizada. */}
 
           <div className="flex-1 overflow-y-auto">
             {filteredChats.length === 0 ? (
@@ -3215,17 +3188,26 @@ function ContactPanel({
   // quando ha `chat.lead_id`. Reusa o componente `LeadDetailsView`, o mesmo
   // do kanban-lead-edit-modal, para garantir paridade visual.
   const [leadDetailed, setLeadDetailed] = useState<LeadDetailed | null>(null);
+  // Linha completa do lead (tabela leads), necessaria para o LeadForm de
+  // edicao inline no painel — o vw_leads_detailed nao serve ao form.
+  const [leadRow, setLeadRow] = useState<Lead | null>(null);
+  const [editingLead, setEditingLead] = useState(false);
   const [leadCustomFields, setLeadCustomFields] = useState<CustomField[]>([]);
   const [leadCustomValues, setLeadCustomValues] = useState<CustomFieldValue[]>(
     []
   );
   const [loadingLead, setLoadingLead] = useState(false);
+  const [leadReloadKey, setLeadReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const leadId = chat.lead_id;
+    // Ao trocar de conversa/lead, sai do modo edicao para nao vazar o form
+    // de um lead para outro contato.
+    setEditingLead(false);
     if (!leadId) {
       setLeadDetailed(null);
+      setLeadRow(null);
       setLeadCustomFields([]);
       setLeadCustomValues([]);
       return;
@@ -3233,15 +3215,19 @@ function ContactPanel({
     setLoadingLead(true);
     (async () => {
       const supabase = createClient();
-      const { data: detailedData } = await supabase
-        .from("vw_leads_detailed")
-        .select("*")
-        .eq("id", leadId)
-        .maybeSingle();
+      const [{ data: detailedData }, { data: leadRowData }] = await Promise.all([
+        supabase
+          .from("vw_leads_detailed")
+          .select("*")
+          .eq("id", leadId)
+          .maybeSingle(),
+        supabase.from("leads").select("*").eq("id", leadId).maybeSingle(),
+      ]);
       if (cancelled) return;
       const detailed =
         (detailedData as unknown as LeadDetailed | null) ?? null;
       setLeadDetailed(detailed);
+      setLeadRow((leadRowData as unknown as Lead | null) ?? null);
       if (detailed) {
         const [fieldsRes, valuesRes] = await Promise.all([
           supabase
@@ -3269,7 +3255,7 @@ function ContactPanel({
     return () => {
       cancelled = true;
     };
-  }, [chat.lead_id]);
+  }, [chat.lead_id, leadReloadKey]);
 
   // Quando troca de chat (props.chat.id muda) com o painel aberto,
   // sai do modo edicao e re-sincroniza o draft. Sem isso, o draft do
@@ -3569,14 +3555,49 @@ function ContactPanel({
 
           {chat.lead_id && (
             <section className="border-b border-gray-100 px-5 py-4">
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                Informações do lead
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {editingLead ? "Editar lead" : "Informações do lead"}
+                </h3>
+                {!editingLead && leadDetailed && leadRow && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingLead(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                  >
+                    <svg
+                      className="h-3 w-3"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"
+                      />
+                    </svg>
+                    Editar
+                  </button>
+                )}
+              </div>
               {loadingLead && !leadDetailed ? (
                 <div className="space-y-2">
                   <div className="h-16 animate-pulse rounded-lg bg-gray-100" />
                   <div className="h-16 animate-pulse rounded-lg bg-gray-100" />
                 </div>
+              ) : editingLead && leadRow ? (
+                <LeadForm
+                  domain={domain}
+                  lead={leadRow}
+                  submitMode="stay"
+                  onSaved={() => {
+                    setEditingLead(false);
+                    setLeadReloadKey((k) => k + 1);
+                  }}
+                  onCancelAction={() => setEditingLead(false)}
+                />
               ) : leadDetailed ? (
                 <LeadDetailsView
                   domain={domain}

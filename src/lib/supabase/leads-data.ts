@@ -52,6 +52,12 @@ export interface LeadListFilters {
   /** Filtra por setor especifico. "none" = leads sem setor. "any" = todos. */
   sectorMode?: "any" | "none" | "specific";
   sectorId?: string;
+  /**
+   * Restrição de visibilidade do usuário (operador com setor atribuído).
+   * Null/undefined = sem restrição. Aplicada em conjunto com o filtro de
+   * setor escolhido na UI — a interseção vazia devolve zero leads.
+   */
+  allowedSectorIds?: string[] | null;
   sourceId?: string;
   tagIds?: string[];
   page: number;
@@ -135,6 +141,12 @@ export async function listLeads(
     query = query.is("sector_id", null);
   } else if (filters.sectorMode === "specific" && filters.sectorId) {
     query = query.eq("sector_id", filters.sectorId);
+  }
+
+  // Visibilidade por setor (operador restrito): sempre aplicada por cima
+  // dos filtros da UI. Lead sem setor fica invisível para restritos.
+  if (filters.allowedSectorIds && filters.allowedSectorIds.length > 0) {
+    query = query.in("sector_id", filters.allowedSectorIds);
   }
 
   if (filters.sourceId) {

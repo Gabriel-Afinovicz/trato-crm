@@ -374,6 +374,23 @@ export function DashboardContent({
               : "hidden"
           }
         >
+          <p className="mb-2 flex items-center gap-1.5 text-[11px] text-gray-400">
+            <svg
+              className="h-3.5 w-3.5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.8}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M7.5 4.5 4.5 7.5m0 0 3 3m-3-3h12m-3 6 3 3m0 0-3 3m3-3h-12"
+              />
+            </svg>
+            Dica: arraste os cards entre as colunas para mudar a etapa do lead
+            — ou use o menu “...” no canto do card.
+          </p>
           <KanbanErrorBoundary>
             <LeadKanbanBoard
               domain={domain}

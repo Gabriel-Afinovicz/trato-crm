@@ -159,11 +159,7 @@ export function Sidebar({
     };
   }, [refetchNewLeads]);
 
-  // Refetch tambem ao trocar de rota — garante badge fresco quando o
-  // usuario volta de /leads (visualizando os recentes) para outra tela.
-  useEffect(() => {
-    void refetchNewLeads();
-  }, [pathname, refetchNewLeads]);
+
 
   // O Dashboard troca de aba via `history.replaceState` (sem fetch RSC)
   // para evitar piscadas. Como `useSearchParams` só reage a navegações

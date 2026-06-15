@@ -29,6 +29,10 @@ function ensureConfig() {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { instanceToken?: string } = {}
@@ -268,6 +272,52 @@ export const evolution = {
     } catch {
       // instancia ja pode nao existir mais
     }
+  },
+
+  /**
+   * Confirma se uma instancia com esse nome ainda existe no servidor
+   * Evolution (case-insensitive). Em caso de falha ao listar, assume que
+   * NAO existe — para nao travar o fluxo de connect por um erro transitorio
+   * de listagem.
+   */
+  async instanceExists(instanceName: string): Promise<boolean> {
+    try {
+      const list = await this.fetchInstances();
+      return list.some(
+        (i) => (i.name ?? "").toLowerCase() === instanceName.toLowerCase()
+      );
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Remocao FORTE de uma instancia: logout + delete em loop ate o
+   * `fetchInstances` confirmar que ela sumiu (ou esgotar as tentativas).
+   *
+   * Necessario porque o `delete` da Evolution v2.3.x falha silenciosamente
+   * quando a instancia ainda nao chegou ao estado `close` — deixando uma
+   * instancia orfa que faz o `createInstance` seguinte retornar
+   * 403 ("name already in use"). Diferente de `resetInstance`, aqui
+   * confirmamos a remocao de fato. Retorna `true` se a instancia nao existe
+   * mais ao final.
+   */
+  async forceDeleteInstance(instanceName: string): Promise<boolean> {
+    try {
+      await this.logout(instanceName);
+    } catch {
+      // 500 e comum no logout (bug conhecido) e nao impede o delete.
+    }
+    for (let i = 0; i < 8; i++) {
+      try {
+        await this.deleteInstance(instanceName);
+      } catch {
+        // pode falhar enquanto a sessao ainda esta fechando — tentamos de novo
+      }
+      if (!(await this.instanceExists(instanceName))) return true;
+      await delay(600);
+    }
+    return !(await this.instanceExists(instanceName));
   },
 
   async sendText(

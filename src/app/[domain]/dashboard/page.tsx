@@ -9,6 +9,7 @@ import {
   DEFAULT_CLINIC_GOALS,
 } from "@/lib/supabase/dashboard-data";
 import { getKanbanMinidash } from "@/lib/supabase/leads-data";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 import { DashboardContent } from "./dashboard-content";
 import type { MinidashCohort } from "@/lib/types/database";
 
@@ -41,7 +42,7 @@ const EMPTY_MINIDASH: MinidashCohort = {
 
 export default async function DashboardPage({ params }: DashboardPageProps) {
   const { domain } = await params;
-  const [{ user }, company] = await Promise.all([
+  const [{ user, profile, role }, company] = await Promise.all([
     getAuthSession(),
     getDomainCompany(domain),
   ]);
@@ -56,14 +57,25 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
   // desconhecido) cai no fuso default do helper.
   const monthRange = defaultMonthRange(new Date(), company?.timezone ?? null);
 
+  // Operador restrito por setor ve apenas os leads dos seus setores em
+  // todas as visoes (recentes, kanban, analitico e minidash).
+  const visibility = await getSectorVisibility(profile, role);
+
   const [{ recentLeads }, kanban, analiticoKpis, goalsResult, minidash] =
     company
       ? await Promise.all([
-          getDashboardData(company.id),
-          getKanbanData(company.id, { range: monthRange }),
-          getAnaliticoKpis(company.id, monthRange),
+          getDashboardData(company.id, visibility.allowedSectorIds),
+          getKanbanData(company.id, {
+            range: monthRange,
+            allowedSectorIds: visibility.allowedSectorIds,
+          }),
+          getAnaliticoKpis(company.id, monthRange, visibility.singleSectorId),
           getClinicGoals(company.id),
-          getKanbanMinidash(company.id, monthRange),
+          getKanbanMinidash(
+            company.id,
+            monthRange,
+            visibility.singleSectorId
+          ),
         ])
       : [
           { recentLeads: [] },

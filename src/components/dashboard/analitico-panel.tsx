@@ -142,6 +142,9 @@ export function AnaliticoPanel({
   const [isDefaultGoals, setIsDefaultGoals] = useState(initialIsDefaultGoals);
   const [showRangePicker, setShowRangePicker] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
+  // Operador restrito por setor: esconde o filtro (o servidor ja força
+  // o setor permitido na RPC).
+  const [sectorsRestricted, setSectorsRestricted] = useState(false);
   const [sectorId, setSectorId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   // Carimbo do último fetch bem-sucedido de KPIs. Inicia com `null`
@@ -217,8 +220,10 @@ export function AnaliticoPanel({
     let cancelled = false;
     fetch(`/api/sectors?companyId=${companyId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { items?: Sector[] } | null) => {
-        if (!cancelled && data?.items) setSectors(data.items);
+      .then((data: { items?: Sector[]; restricted?: boolean } | null) => {
+        if (cancelled || !data?.items) return;
+        setSectors(data.items);
+        setSectorsRestricted(Boolean(data.restricted));
       })
       .catch(() => {});
     return () => {
@@ -283,7 +288,7 @@ export function AnaliticoPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {sectors.length > 0 && (
+          {sectors.length > 0 && !sectorsRestricted && (
             <select
               value={sectorId ?? ""}
               onChange={(e) => setSectorId(e.target.value || null)}
@@ -297,6 +302,19 @@ export function AnaliticoPanel({
                 </option>
               ))}
             </select>
+          )}
+          {sectorsRestricted && sectors.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-500"
+              title="Você vê apenas os dados do seu setor"
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: sectors[0].color }}
+                aria-hidden
+              />
+              {sectors[0].name}
+            </span>
           )}
           {/* Carimbo da última atualização — mostra horário absoluto e
               tempo relativo (atualizado a cada segundo). */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { useCompanyTimezone } from "@/hooks/use-company-timezone";
@@ -32,9 +32,12 @@ import {
 } from "./date-range-picker";
 import { defaultMonthRangeLocal } from "@/lib/utils/date-range";
 import { KanbanLeadEditModal } from "@/components/dashboard/kanban-lead-edit-modal";
+import { LostReasonModal } from "@/components/dashboard/lost-reason-modal";
 import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
 import { confirm } from "@/components/ui/confirm";
 import { createClient } from "@/lib/supabase/client";
+import { moveLeadStage } from "@/lib/leads/move-stage";
+import type { KanbanLead } from "@/lib/supabase/dashboard-data";
 
 interface LeadTableProps {
   domain: string;
@@ -84,6 +87,9 @@ export function LeadTable({ domain }: LeadTableProps) {
   });
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
+  // Operador restrito por setor: esconde o filtro "Todos setores" (o
+  // servidor ja limita a listagem aos setores permitidos).
+  const [sectorsRestricted, setSectorsRestricted] = useState(false);
   const [tagsByLead, setTagsByLead] = useState<Record<string, Tag[]>>({});
   const [members, setMembers] = useState<User[]>([]);
   const [isFetching, setIsFetching] = useState(true);
@@ -138,8 +144,10 @@ export function LeadTable({ domain }: LeadTableProps) {
     let cancelled = false;
     fetch(`/api/sectors?companyId=${companyId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { items?: Sector[] } | null) => {
-        if (!cancelled && data?.items) setSectors(data.items);
+      .then((data: { items?: Sector[]; restricted?: boolean } | null) => {
+        if (cancelled || !data?.items) return;
+        setSectors(data.items);
+        setSectorsRestricted(Boolean(data.restricted));
       })
       .catch(() => { });
     return () => {
@@ -458,7 +466,7 @@ export function LeadTable({ domain }: LeadTableProps) {
         </div>
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
-          {sectors.length > 0 && (
+          {sectors.length > 0 && !sectorsRestricted && (
             <select
               value={filters.state.sector ?? ""}
               onChange={(e) =>
@@ -474,6 +482,19 @@ export function LeadTable({ domain }: LeadTableProps) {
                 </option>
               ))}
             </select>
+          )}
+          {sectorsRestricted && sectors.length > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-medium text-gray-500"
+              title="Você vê apenas os leads do seu setor"
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: sectors[0].color }}
+                aria-hidden
+              />
+              {sectors[0].name}
+            </span>
           )}
           <div className="w-full sm:w-72">
             <Input
@@ -672,11 +693,21 @@ export function LeadTable({ domain }: LeadTableProps) {
                             )}
                           </td>
                           <td className="whitespace-nowrap px-6 py-3">
-                            <StageBadge
-                              stageName={stage?.name ?? lead.stage_name}
-                              stageColor={stage?.color ?? lead.stage_color}
-                              fallbackStatus={lead.status}
-                            />
+                            {companyId ? (
+                              <RowStageMenu
+                                lead={lead}
+                                stage={stage}
+                                stages={stages}
+                                companyId={companyId}
+                                onChanged={fetchPage}
+                              />
+                            ) : (
+                              <StageBadge
+                                stageName={stage?.name ?? lead.stage_name}
+                                stageColor={stage?.color ?? lead.stage_color}
+                                fallbackStatus={lead.status}
+                              />
+                            )}
                           </td>
                           <td className="px-6 py-3">
                             <TagsCell tags={leadTags} />
@@ -895,6 +926,141 @@ function BulkActionsBar({
       >
         Limpar selecao
       </button>
+    </div>
+  );
+}
+
+/**
+ * Badge de etapa clicavel na lista de leads. Abre um menu para mover o
+ * lead de etapa reusando `moveLeadStage` (mesma rota/RPC do Kanban). O
+ * container interrompe a propagacao do clique para nao abrir o modal de
+ * edicao da linha.
+ */
+function RowStageMenu({
+  lead,
+  stage,
+  stages,
+  companyId,
+  onChanged,
+}: {
+  lead: LeadDetailed;
+  stage: PipelineStage | undefined;
+  stages: PipelineStage[];
+  companyId: string;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [pendingLostStageId, setPendingLostStageId] = useState<string | null>(
+    null
+  );
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  async function applyMove(toStageId: string, lostReason?: string | null) {
+    if (toStageId === lead.stage_id) {
+      setOpen(false);
+      return;
+    }
+    setSaving(true);
+    const result = await moveLeadStage({
+      companyId,
+      leadId: lead.id,
+      fromStageId: lead.stage_id,
+      toStageId,
+      lostReason: lostReason ?? null,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      toast.error("Não foi possível mudar a etapa", {
+        description: result.error,
+      });
+      return;
+    }
+    toast.success("Etapa atualizada");
+    setOpen(false);
+    setPendingLostStageId(null);
+    onChanged();
+  }
+
+  function handleSelect(s: PipelineStage) {
+    if (s.id === lead.stage_id) {
+      setOpen(false);
+      return;
+    }
+    if (s.is_lost) {
+      setOpen(false);
+      setPendingLostStageId(s.id);
+      return;
+    }
+    void applyMove(s.id);
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="relative inline-block"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        disabled={saving || stages.length === 0}
+        onClick={() => setOpen((v) => !v)}
+        title="Clique para mudar a etapa"
+        className="disabled:cursor-default"
+      >
+        <StageBadge
+          stageName={stage?.name ?? lead.stage_name}
+          stageColor={stage?.color ?? lead.stage_color}
+          fallbackStatus={lead.status}
+          className="cursor-pointer hover:bg-gray-50"
+        />
+      </button>
+      {open && stages.length > 0 && (
+        <div className="absolute left-0 z-30 mt-1.5 w-56 origin-top-left rounded-xl border border-slate-200/80 bg-white py-1.5 shadow-lg ring-1 ring-black/5">
+          <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+            Mover para etapa
+          </div>
+          <div className="mt-1 max-h-64 overflow-y-auto">
+            {stages.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                disabled={s.id === lead.stage_id}
+                onClick={() => handleSelect(s)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
+                <span className="flex-1 truncate">{s.name}</span>
+                {s.id === lead.stage_id && (
+                  <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-400">
+                    atual
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pendingLostStageId && (
+        <LostReasonModal
+          lead={{ name: lead.name } as unknown as KanbanLead}
+          onConfirm={(reason) => applyMove(pendingLostStageId, reason)}
+          onCancel={() => setPendingLostStageId(null)}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { WhatsAppChat, WhatsAppInstance } from "@/lib/types/database";
 import { jidToPhone, phoneToJid } from "@/lib/evolution/phone";
 import { ConversasContent } from "./conversas-content";
+import { WhatsAppConnectLoader } from "@/components/whatsapp/whatsapp-connect-loader";
 import Link from "next/link";
 
 interface ConversasPageProps {
@@ -12,6 +13,7 @@ interface ConversasPageProps {
     chat?: string;
     phone?: string;
     leadId?: string;
+    justConnected?: string;
   }>;
 }
 
@@ -20,7 +22,7 @@ export default async function ConversasPage({
   searchParams,
 }: ConversasPageProps) {
   const { domain } = await params;
-  const { chat, phone, leadId } = await searchParams;
+  const { chat, phone, leadId, justConnected } = await searchParams;
 
   const [{ user }, company] = await Promise.all([
     getAuthSession(),
@@ -75,6 +77,25 @@ export default async function ConversasPage({
           </Link>
         </div>
       </div>
+    );
+  }
+
+  // Tela de carregamento (card em tela cheia com porcentagem). Aparece:
+  //  - logo apos conectar (?justConnected=1), OU
+  //  - sempre que houver uma sincronizacao em andamento (ex.: o operador
+  //    saiu da aba e voltou enquanto o sync ainda roda).
+  // Em ambos os casos escondemos a lista inteira ate o sync terminar — assim
+  // o usuario nunca ve contatos/mensagens desatualizados nem aquele banner
+  // "Sincronizando" por cima da lista. `autostart` (conexao nova) instrui o
+  // loader a disparar o sync inicial; na re-entrada (sync ja rodando) ele
+  // apenas acompanha ate concluir. Ao terminar, o loader limpa a URL e
+  // recarrega a lista ja atualizada.
+  if (justConnected === "1" || initialSyncInProgress) {
+    return (
+      <WhatsAppConnectLoader
+        domain={domain}
+        autostart={justConnected === "1"}
+      />
     );
   }
 

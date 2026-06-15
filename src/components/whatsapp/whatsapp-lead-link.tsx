@@ -30,7 +30,7 @@ export function WhatsAppLeadLink({
   const px = size === "md" ? 16 : 14;
   return (
     <Link
-      href={`/${domain}/conversas?phone=${encodeURIComponent(phone)}&leadId=${encodeURIComponent(leadId)}`}
+      href={`/${domain}/conversas?leadId=${encodeURIComponent(leadId)}`}
       onClick={
         stopRowPropagation ? (e) => e.stopPropagation() : undefined
       }

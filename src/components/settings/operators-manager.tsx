@@ -71,14 +71,6 @@ export function OperatorsManager() {
   const [newRoleSaving, setNewRoleSaving] = useState(false);
   const [newRoleError, setNewRoleError] = useState<string | null>(null);
 
-  // Inline create de Setor (passa pela API /api/sectors, mesma rota do
-  // sectors-manager, para reusar validacoes e tracking).
-  const [newSectorOpen, setNewSectorOpen] = useState(false);
-  const [newSectorName, setNewSectorName] = useState("");
-  const [newSectorColor, setNewSectorColor] = useState(PRESET_COLORS[1]);
-  const [newSectorSaving, setNewSectorSaving] = useState(false);
-  const [newSectorError, setNewSectorError] = useState<string | null>(null);
-
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Troca de senha: membro alvo do modal + campos. Disponivel apenas para
   // admin/super_admin (a aba inteira ja e restrita a admin); a rota de API
@@ -336,43 +328,6 @@ export function OperatorsManager() {
     setNewRoleName("");
     setNewRoleColor(PRESET_COLORS[0]);
     setNewRoleMarksAsDentist(false);
-  }
-
-  async function handleCreateSectorInline() {
-    if (!companyId) return;
-    const trimmed = newSectorName.trim();
-    if (!trimmed) {
-      setNewSectorError("Informe o nome do setor.");
-      return;
-    }
-    setNewSectorError(null);
-    setNewSectorSaving(true);
-    const res = await fetch("/api/sectors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        companyId,
-        name: trimmed,
-        color: newSectorColor,
-      }),
-    });
-    setNewSectorSaving(false);
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      setNewSectorError(payload.error ?? "Erro ao criar setor.");
-      return;
-    }
-    const payload = (await res.json()) as { sector: Sector };
-    const created = payload.sector;
-    setSectors((prev) =>
-      [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    setCreateSectorIds((prev) => [...prev, created.id]);
-    setNewSectorOpen(false);
-    setNewSectorName("");
-    setNewSectorColor(PRESET_COLORS[1]);
   }
 
   async function toggleSector(user: UserWithTags, sectorId: string) {
@@ -757,27 +712,16 @@ export function OperatorsManager() {
               <label className="block text-xs font-medium text-gray-700">
                 Setores
                 <HelpIcon>
-                  Departamento ou area que agrupa membros e leads — ex:
-                  Comercial, Suporte, Captacao. Um membro pode pertencer a
-                  varios setores.
+                  O CRM trabalha com dois setores fixos: o de entrada de
+                  leads e o de pacientes confirmados. Um membro pode
+                  pertencer aos dois. Renomeie-os na aba &quot;Setores&quot;.
                 </HelpIcon>
               </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setNewSectorOpen((v) => !v);
-                  setNewSectorError(null);
-                }}
-                className="text-xs font-medium text-blue-600 hover:text-blue-700"
-              >
-                {newSectorOpen ? "Cancelar" : "+ Novo setor"}
-              </button>
             </div>
 
-            {sectors.length === 0 && !newSectorOpen ? (
+            {sectors.length === 0 ? (
               <p className="text-xs text-gray-500">
-                Nenhum setor cadastrado. Crie aqui ou na aba
-                &quot;Setores&quot;.
+                Setores não encontrados para esta organização.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
@@ -809,47 +753,6 @@ export function OperatorsManager() {
                     </button>
                   );
                 })}
-              </div>
-            )}
-
-            {newSectorOpen && (
-              <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-                {newSectorError && (
-                  <div className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
-                    {newSectorError}
-                  </div>
-                )}
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <input
-                    type="text"
-                    placeholder="Nome do setor (ex: Comercial, Atendimento...)"
-                    value={newSectorName}
-                    onChange={(e) => setNewSectorName(e.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    autoFocus
-                  />
-                  <ColorPicker
-                    value={newSectorColor}
-                    onChange={setNewSectorColor}
-                  />
-                </div>
-                <div className="mt-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewSectorOpen(false)}
-                    className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCreateSectorInline}
-                    disabled={newSectorSaving || !newSectorName.trim()}
-                    className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-                  >
-                    {newSectorSaving ? "Criando..." : "Criar setor"}
-                  </button>
-                </div>
               </div>
             )}
           </div>
@@ -1031,6 +934,16 @@ export function OperatorsManager() {
                             })
                           )}
                         </div>
+                        {u.role === "operator" &&
+                          u.is_active &&
+                          u.sectorIds.length === 0 && (
+                            <p
+                              className="mt-1 text-[11px] font-medium text-amber-600"
+                              title="Sem setor atribuído, este operador enxerga os leads de todos os setores."
+                            >
+                              Sem setor — vê todos os leads
+                            </p>
+                          )}
                       </td>
                       <td className="px-5 py-3">
                         {u.is_active ? (

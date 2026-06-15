@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminForDomain } from "@/lib/supabase/require-admin-for-domain";
-import { evolution } from "@/lib/evolution/client";
+import {
+  evolution,
+  type CreateInstanceResponse,
+} from "@/lib/evolution/client";
 import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
 
 interface ConnectPayload {
@@ -69,17 +72,29 @@ export async function POST(req: NextRequest) {
 
   try {
     if (needsFreshInstance) {
-      // Best-effort: garante que nao sobrou nenhuma instancia velha na
-      // Evolution com esse mesmo nome. `resetInstance` cobre o caso em
-      // que a instancia ainda existe la (orfa de um disconnect anterior
-      // que nao completou) e precisaria de logout->wait->delete antes
-      // do create — caso contrario `create` retorna 403 Forbidden por
-      // nome duplicado.
-      if (existingRow) {
-        await evolution.resetInstance(instanceName);
-      }
+      // Garante que nao sobrou nenhuma instancia orfa na Evolution com esse
+      // mesmo nome ANTES de criar — caso contrario o `create` retorna
+      // 403 Forbidden ("name already in use"). Isso acontece quando um
+      // disconnect anterior nao conseguiu apagar a instancia no servidor
+      // Evolution (o delete da v2.3.x falha se a sessao nao chegou a `close`).
+      // `forceDeleteInstance` repete logout+delete ate o fetchInstances
+      // confirmar a remocao.
+      await evolution.forceDeleteInstance(instanceName);
 
-      const created = await evolution.createInstance(instanceName);
+      let created: CreateInstanceResponse;
+      try {
+        created = await evolution.createInstance(instanceName);
+      } catch (createErr) {
+        // Ultima rede de seguranca: se ainda assim a Evolution recusar por
+        // nome em uso, forca outra remocao e tenta recriar uma vez.
+        const status = (createErr as { status?: number }).status;
+        if (status === 403) {
+          await evolution.forceDeleteInstance(instanceName);
+          created = await evolution.createInstance(instanceName);
+        } else {
+          throw createErr;
+        }
+      }
       const hashApiKey =
         typeof created.hash === "string"
           ? created.hash

@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthSession, getDomainCompany } from "@/lib/supabase/cached-data";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 import {
   getLeadActivities,
   getLeadSidebarData,
@@ -19,7 +20,7 @@ interface LeadDetailPageProps {
 
 export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   const { domain, id } = await params;
-  const [{ user }, company] = await Promise.all([
+  const [{ user, profile, role }, company] = await Promise.all([
     getAuthSession(),
     getDomainCompany(domain),
   ]);
@@ -65,6 +66,17 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
   }
 
   const typedLead = leadRes.data as unknown as LeadDetailed;
+
+  // Visibilidade por setor: operador restrito nao acessa lead fora dos
+  // seus setores (404, mesmo comportamento de lead inexistente).
+  const visibility = await getSectorVisibility(profile, role);
+  if (
+    visibility.restricted &&
+    (!typedLead.sector_id ||
+      !visibility.allowedSectorIds?.includes(typedLead.sector_id))
+  ) {
+    notFound();
+  }
   const nextAppointmentRow = nextAppointmentRes.data as
     | { id: string; starts_at: string }
     | null;

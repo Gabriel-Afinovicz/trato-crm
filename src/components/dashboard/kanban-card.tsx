@@ -148,8 +148,9 @@ export function KanbanCard({
                   e.stopPropagation();
                   setMenuOpen((v) => !v);
                 }}
-                aria-label="Mais ações"
-                className="rounded-md p-1 text-slate-400 opacity-0 transition-all hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100 active:scale-[0.9]"
+                aria-label="Mover para etapa"
+                title="Mover para outra etapa"
+                className="rounded-md p-1 text-slate-400 opacity-60 transition-all hover:bg-slate-100 hover:text-slate-700 hover:opacity-100 focus:opacity-100 active:scale-[0.9]"
               >
                 <svg
                   className="h-3.5 w-3.5"

@@ -1,5 +1,6 @@
 import type { LeadDetailed } from "@/lib/types/database";
 import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
+import { LeadStageControl } from "@/components/leads/lead-stage-control";
 
 interface LeadInfoProps {
   lead: LeadDetailed;
@@ -120,7 +121,13 @@ export function LeadInfo({ lead, domain }: LeadInfoProps) {
           {assignedLabel && (
             <InfoRow label="Responsável (legado)" value={assignedLabel} />
           )}
-          <InfoRow label="Etapa" value={lead.stage_name} />
+          <LeadStageControl
+            leadId={lead.id}
+            leadName={lead.name}
+            currentStageId={lead.stage_id}
+            currentStageName={lead.stage_name}
+            currentStageColor={lead.stage_color}
+          />
           {lead.lost_reason && (
             <InfoRow label="Motivo da perda" value={lead.lost_reason} />
           )}

@@ -138,6 +138,16 @@ function addMinutesIso(iso: string, minutes: number) {
   return d.toISOString();
 }
 
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+}
+
 export function LeadForm({
   domain,
   lead,
@@ -157,7 +167,10 @@ export function LeadForm({
   const [showAddFieldForm, setShowAddFieldForm] = useState(false);
 
   const [name, setName] = useState(lead?.name || "");
-  const [phone, setPhone] = useState(lead?.phone || initialPhone || "");
+  const [phone, setPhone] = useState(() => {
+    const raw = lead?.phone || initialPhone || "";
+    return formatPhone(raw);
+  });
   // Email opcional — usado para enriquecer integracoes (ex.: Clinicorp) e
   // futuras notificacoes. NAO participa de login/autenticacao.
   const [email, setEmail] = useState(lead?.email || "");
@@ -322,7 +335,20 @@ export function LeadForm({
 
       if (sourcesRes.data)
         setSources(sourcesRes.data as unknown as LeadSource[]);
-      if (sectorsRes.data) setSectors(sectorsRes.data as unknown as Sector[]);
+      if (sectorsRes.data) {
+        const sectorList = sectorsRes.data as unknown as Sector[];
+        setSectors(sectorList);
+        // Lead novo entra por padrao no setor de entrada (CRC Leads).
+        // Em edicao mantemos o setor atual do lead.
+        if (!lead?.sector_id) {
+          const entrySector = sectorList.find(
+            (s) => s.system_key === "crc_leads"
+          );
+          if (entrySector) {
+            setSectorId((prev) => prev || entrySector.id);
+          }
+        }
+      }
 
       const fieldsList =
         (customFieldsRes.data as unknown as CustomField[]) || [];
@@ -372,7 +398,7 @@ export function LeadForm({
         }
       })
       .catch(() => {});
-  }, [companyId, lead?.id]);
+  }, [companyId, lead?.id, lead?.sector_id]);
 
   function handleCustomFieldChange(fieldId: string, val: string) {
     setCustomValues((prev) => ({ ...prev, [fieldId]: val }));
@@ -459,7 +485,7 @@ export function LeadForm({
     if (customFields.length === 0 || !companyId) return;
     const supabase = createClient();
 
-    for (const field of customFields) {
+    const promises = customFields.map((field) => {
       const val = customValues[field.id] ?? "";
       const existing = existingCustomValues.find(
         (v) => v.custom_field_id === field.id
@@ -467,20 +493,23 @@ export function LeadForm({
 
       if (existing) {
         if (existing.value !== val) {
-          await supabase
+          return supabase
             .from("custom_field_values")
             .update({ value: val || null })
             .eq("id", existing.id);
         }
       } else if (val) {
-        await supabase.from("custom_field_values").insert({
+        return supabase.from("custom_field_values").insert({
           lead_id: targetLeadId,
           custom_field_id: field.id,
           company_id: companyId,
           value: val,
         });
       }
-    }
+      return null;
+    });
+
+    await Promise.all(promises.filter(Boolean));
 
     const { data: refreshed } = await supabase
       .from("custom_field_values")
@@ -551,6 +580,28 @@ export function LeadForm({
       return;
     }
 
+    if (email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        setError("O e-mail informado e invalido.");
+        return;
+      }
+    }
+
+    let normalizedPhone: string | null = null;
+    if (phone.trim()) {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 10 || digits.length > 15) {
+        setError("O telefone deve ter entre 10 e 15 digitos (com DDD).");
+        return;
+      }
+      if (digits.length === 10 || digits.length === 11) {
+        normalizedPhone = `+55${digits}`;
+      } else {
+        normalizedPhone = `+${digits}`;
+      }
+    }
+
     // Telefone duplicado: pausa o submit e mostra modal de confirmacao.
     // Quando o usuario escolhe "Criar mesmo assim", chamamos novamente
     // este handler com `skipDuplicateCheck: true`.
@@ -586,7 +637,7 @@ export function LeadForm({
 
     const basePayload = {
       name: name.trim(),
-      phone: phone.trim() || null,
+      phone: normalizedPhone,
       email: email.trim() || null,
       source_id: sourceId || null,
       sector_id: sectorId || null,
@@ -776,7 +827,7 @@ export function LeadForm({
             label="Telefone"
             placeholder="(00) 00000-0000"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => setPhone(formatPhone(e.target.value))}
           />
           <Input
             label="Email (opcional)"

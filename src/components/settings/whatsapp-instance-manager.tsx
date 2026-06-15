@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { confirm } from "@/components/ui/confirm";
 import type { WhatsAppInstance } from "@/lib/types/database";
@@ -26,16 +26,10 @@ const POLL_MS = 3000;
 // API (findChats + whatsappNumbers em batches), o que pode levar o numero
 // a ser flagado como comportamento automatizado.
 const SYNC_COOLDOWN_MS = 60_000;
-// Atraso antes do sync automatico disparado ao conectar. Logo apos o QR ser
-// lido, a Evolution/Baileys ainda esta baixando a lista de conversas do
-// celular — sincronizar no mesmo instante faz o `findChats` voltar vazio e
-// nenhum contato e importado. Esperamos alguns segundos para dar tempo de o
-// historico de chats ficar disponivel. O `post-login-sync` (rodado na proxima
-// navegacao) e a rede de seguranca para contas grandes que demoram mais.
-const CONNECT_SYNC_DELAY_MS = 15_000;
 
 export function WhatsAppInstanceManager() {
   const params = useParams<{ domain?: string }>();
+  const router = useRouter();
   const domain = params?.domain;
 
   const [loading, setLoading] = useState(true);
@@ -56,6 +50,9 @@ export function WhatsAppInstanceManager() {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const syncedRef = useRef(false);
+  // Ultimo status observado — usado para detectar a transicao -> connected
+  // de forma sincrona (o updater do setInstance roda tarde demais).
+  const prevStatusRef = useRef<string | null>(null);
   const lastSyncAtRef = useRef<number>(0);
   const cooldownTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Marcadores do tick de "tempo decorrido" durante a sync ativa.
@@ -235,24 +232,37 @@ export function WhatsAppInstanceManager() {
       }
     }
     cooldownSyncedFromServerRef.current = true;
-    setInstance((prev) => {
-      // Detecta transição para connected: dispara sync automático uma vez
-      if (
-        s.instance?.status === "connected" &&
-        prev?.status !== "connected" &&
-        !syncedRef.current
-      ) {
-        syncedRef.current = true;
-        // Chama sync fora do setState para não bloquear a atualização de estado.
-        // Aguarda CONNECT_SYNC_DELAY_MS para dar tempo de a Evolution/Baileys
-        // baixar a lista de conversas do celular — sincronizar imediatamente
-        // faz o findChats voltar vazio. Se cair em cooldown server-side (admin
-        // sincronizou ha < 60s), o proprio syncChats trata o 429 e ajusta o
-        // tick — sem rajada extra.
-        setTimeout(() => syncChats(), CONNECT_SYNC_DELAY_MS);
-      }
-      return s.instance;
-    });
+
+    // Detecta a transição para "connected" de forma SINCRONA via ref. (Antes
+    // isso era feito dentro do updater do setInstance, mas o updater roda no
+    // proximo render — de forma assincrona — entao o redirect logo abaixo
+    // nunca via a flag como true e nao disparava.)
+    const newStatus = s.instance?.status ?? null;
+    const prevStatus = prevStatusRef.current;
+    prevStatusRef.current = newStatus;
+    setInstance(s.instance);
+
+    // So consideramos "acabou de conectar" quando ja tinhamos observado um
+    // estado anterior NAO conectado (connecting/disconnected) nesta sessao —
+    // assim nao redirecionamos so por abrir Configuracoes com o WhatsApp ja
+    // conectado.
+    const justConnected =
+      newStatus === "connected" &&
+      prevStatus !== null &&
+      prevStatus !== "connected" &&
+      !syncedRef.current;
+    // Ao conectar, leva o operador direto para a aba Conversas com a tela de
+    // sincronizacao (?justConnected=1). O disparo do sync inicial passa a ser
+    // responsabilidade do loader naquela pagina — ela fica montada durante
+    // todo o processo, ao contrario deste manager (que seria desmontado na
+    // navegacao, tornando um setTimeout local pouco confiavel).
+    if (justConnected && domain) {
+      syncedRef.current = true;
+      setShowQrModal(false);
+      setQr(null);
+      setPairingCode(null);
+      router.push(`/${domain}/conversas?justConnected=1`);
+    }
     if (s.qrBase64) setQr(s.qrBase64);
     if (s.pairingCode) setPairingCode(s.pairingCode);
     if (s.instance?.status === "connected" && pollRef.current) {
@@ -365,6 +375,8 @@ export function WhatsAppInstanceManager() {
       setQr(null);
       setPairingCode(null);
       setShowQrModal(false);
+      // Permite que uma futura reconexao volte a disparar o redirect/loader.
+      syncedRef.current = false;
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;

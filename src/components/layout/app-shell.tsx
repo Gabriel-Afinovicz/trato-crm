@@ -9,6 +9,7 @@ import { CommandPalette } from "./command-palette";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { NewLeadNotifier } from "./new-lead-notifier";
+import { WhatsAppSyncIndicator } from "./whatsapp-sync-indicator";
 
 interface AppShellProps {
   domain: string;
@@ -77,6 +78,10 @@ export function AppShell({ domain, showSettings, children }: AppShellProps) {
               <span className="truncate text-xs font-medium uppercase tracking-wide text-gray-500">
                 {companyName ?? ""}
               </span>
+              {/* Indicador global de sincronizacao do WhatsApp: fica ao lado
+                  do nome da clinica para o operador acompanhar o progresso
+                  mesmo navegando para outras telas do CRM. */}
+              <WhatsAppSyncIndicator domain={domain} />
             </div>
             <UserInfo
               domain={domain}

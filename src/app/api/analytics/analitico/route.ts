@@ -4,6 +4,7 @@ import {
   defaultMonthRange,
   getAnaliticoKpis,
 } from "@/lib/supabase/dashboard-data";
+import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 
 /**
  * KPIs executivos da aba "Analítico".
@@ -60,8 +61,16 @@ export async function GET(req: NextRequest) {
   }
 
   const sectorParam = searchParams.get("sector");
-  const sectorId =
-    sectorParam && sectorParam !== "none" ? sectorParam : null;
+  let sectorId = sectorParam && sectorParam !== "none" ? sectorParam : null;
+
+  // Operador restrito: forca o setor permitido, ignorando o filtro da UI.
+  const visibility = await getSectorVisibility(profile, role);
+  if (visibility.restricted) {
+    sectorId =
+      sectorId && visibility.allowedSectorIds?.includes(sectorId)
+        ? sectorId
+        : visibility.singleSectorId;
+  }
 
   const kpis = await getAnaliticoKpis(companyId, range, sectorId);
   return NextResponse.json({

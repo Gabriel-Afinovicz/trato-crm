@@ -215,7 +215,9 @@ export default async function AjudaPage({ searchParams }: AjudaPageProps) {
               <li>
                 <strong className="text-gray-900">Kanban</strong> — quadro com
                 colunas por etapa do funil. Arraste o card do lead de uma coluna
-                para outra para mudar a etapa.
+                para outra para mudar a etapa, ou use o menu{" "}
+                <strong>“...”</strong> no canto do card para escolher a etapa
+                sem arrastar.
               </li>
               <li>
                 <strong className="text-gray-900">Funil</strong> — visão em
@@ -223,9 +225,12 @@ export default async function AjudaPage({ searchParams }: AjudaPageProps) {
               </li>
             </ul>
             <Tip>
-              No Kanban, clique em um card para abrir os detalhes do lead e
-              editar rapidamente. Use as teclas <Kbd>1</Kbd> <Kbd>2</Kbd>{" "}
-              <Kbd>3</Kbd> para alternar entre Analítico, Kanban e Funil.
+              Para mudar a etapa de um lead você tem três caminhos: arraste o
+              card no <strong>Kanban</strong>, use o menu <strong>“...”</strong>{" "}
+              do card, ou abra o lead e clique no seletor{" "}
+              <strong>“Etapa”</strong> (também dá para clicar no status na lista
+              de Leads). Use as teclas <Kbd>1</Kbd> <Kbd>2</Kbd> <Kbd>3</Kbd>{" "}
+              para alternar entre Analítico, Kanban e Funil.
             </Tip>
           </Section>
 

@@ -98,6 +98,36 @@ export function canonicalRemoteJid(
  * Numeros que nao se encaixam (fixos com 8 digitos sem celular, outros DDIs,
  * grupos, `@lid`, etc) retornam null.
  */
+/**
+ * Gera os formatos de telefone candidatos para casar com `leads.phone` a
+ * partir de um JID/numero. Cobre o formato canonico do CRM (`+55DDDNUMERO`,
+ * gravado pela API de leads), os digitos crus e a variacao do nono digito
+ * (sibling). Usado pelo auto-vinculo de lead no webhook do WhatsApp para
+ * achar um lead existente antes de criar um novo.
+ */
+export function phoneMatchCandidates(
+  jidOrPhone: string | null | undefined
+): string[] {
+  const digits = onlyDigits(jidToPhone(jidOrPhone));
+  if (digits.length < 8) return [];
+
+  const variants = new Set<string>();
+  variants.add(digits);
+
+  const sib = siblingJid(`${digits}@s.whatsapp.net`);
+  if (sib) {
+    const sibDigits = onlyDigits(jidToPhone(sib));
+    if (sibDigits) variants.add(sibDigits);
+  }
+
+  const out = new Set<string>();
+  for (const d of variants) {
+    out.add(d);
+    out.add(`+${d}`);
+  }
+  return [...out];
+}
+
 export function siblingJid(jid: string | null | undefined): string | null {
   if (!jid) return null;
   if (!jid.endsWith("@s.whatsapp.net") && !jid.endsWith("@c.us")) return null;

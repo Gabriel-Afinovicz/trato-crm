@@ -4,14 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import type { Sector } from "@/lib/types/database";
 
-// PATCH (renomear / desativar / mudar cor) e DELETE (hard delete somente
-// quando nao houver leads vinculados; caso contrario 409). Permissao
+// Setores sao fixos (CRC Leads / CRC Comercial). PATCH permite apenas
+// renomear e mudar a cor; desativacao e exclusao estao bloqueadas (o
+// trigger trg_protect_system_sectors reforca no banco). Permissao
 // reforcada pelas policies RLS `sectors_manage`.
 
 interface PatchPayload {
   name?: string;
   color?: string;
-  is_active?: boolean;
 }
 
 function isValidHexColor(value: string): boolean {
@@ -51,9 +51,6 @@ export async function PATCH(
       );
     }
     update.color = body.color;
-  }
-  if (typeof body.is_active === "boolean") {
-    update.is_active = body.is_active;
   }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
@@ -101,64 +98,14 @@ export async function PATCH(
   return NextResponse.json({ sector: data as Sector });
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  ctx: { params: Promise<{ id: string }> }
-) {
-  const { user, profile, role } = await getAuthSession();
-  if (!user || !profile) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
-  const { id } = await ctx.params;
-  const supabase = await createClient();
-  const { data: sectorRow } = await supabase
-    .from("sectors")
-    .select("company_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (!sectorRow) {
-    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  }
-  const sectorCompanyId = (sectorRow as { company_id: string }).company_id;
-  const isOwnAdmin = role === "admin" && profile.company_id === sectorCompanyId;
-  const isSuperAdmin = role === "super_admin";
-  if (!isOwnAdmin && !isSuperAdmin) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
-
-  // Bloqueia exclusao se houver leads vinculados. Cliente deve usar
-  // /reassign primeiro. Conta apenas leads cujo sector_id == id; o filtro
-  // `is_active` nao se aplica a leads (eles nao tem flag).
-  const { count: leadsCount, error: countErr } = await supabase
-    .from("leads")
-    .select("id", { head: true, count: "exact" })
-    .eq("sector_id", id);
-  if (countErr) {
-    console.error("[DELETE /api/sectors/:id] count error", countErr);
-    const f = friendlyDbError(countErr, "delete_sector");
-    return NextResponse.json({ error: f.message }, { status: f.status });
-  }
-  if ((leadsCount ?? 0) > 0) {
-    return NextResponse.json(
-      {
-        error: "SECTOR_HAS_LEADS",
-        count: leadsCount,
-        message:
-          "Este setor tem leads vinculados. Reatribua-os antes de excluir.",
-      },
-      { status: 409 }
-    );
-  }
-
-  const { error: deleteErr } = await supabase
-    .from("sectors")
-    .delete()
-    .eq("id", id);
-  if (deleteErr) {
-    console.error("[DELETE /api/sectors/:id] db error", deleteErr);
-    const f = friendlyDbError(deleteErr, "delete_sector");
-    return NextResponse.json({ error: f.message }, { status: f.status });
-  }
-  return NextResponse.json({ ok: true });
+export async function DELETE() {
+  // Setores sao fixos no sistema; exclusao desativada (o trigger
+  // trg_protect_system_sectors tambem bloqueia no banco).
+  return NextResponse.json(
+    {
+      error:
+        "Os setores são fixos (CRC Leads e CRC Comercial) e não podem ser excluídos.",
+    },
+    { status: 403 }
+  );
 }

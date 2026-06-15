@@ -45,9 +45,20 @@ export function WhatsAppPostLoginSync() {
     if (pathname.startsWith(conversasPath)) return;
 
     const key = `wa:postSync:${session.companyId}:${session.userId}`;
+    const attemptKey = `wa:postSyncAttempt:${session.companyId}:${session.userId}`;
     let alreadyDone = false;
     try {
       alreadyDone = sessionStorage.getItem(key) === "1";
+      if (!alreadyDone) {
+        const lastAttempt = sessionStorage.getItem(attemptKey);
+        if (lastAttempt) {
+          const lastAttemptTime = parseInt(lastAttempt, 10);
+          // Cooldown de 5 minutos (300.000 ms) para evitar spamming em navegacao
+          if (Date.now() - lastAttemptTime < 300_000) {
+            return;
+          }
+        }
+      }
     } catch {
       // sessionStorage pode estar bloqueado (modo privado em alguns browsers);
       // melhor falhar fechado e nao disparar do que duplicar requests.
@@ -57,6 +68,7 @@ export function WhatsAppPostLoginSync() {
 
     try {
       sessionStorage.setItem(key, "1");
+      sessionStorage.setItem(attemptKey, Date.now().toString());
     } catch {
       return;
     }
