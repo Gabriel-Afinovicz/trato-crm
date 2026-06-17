@@ -5,6 +5,8 @@ import type { WhatsAppChat, WhatsAppInstance } from "@/lib/types/database";
 import { jidToPhone, phoneToJid } from "@/lib/evolution/phone";
 import { ConversasContent } from "./conversas-content";
 import { WhatsAppConnectLoader } from "@/components/whatsapp/whatsapp-connect-loader";
+import { WhatsAppLoginSyncGate } from "@/components/whatsapp/whatsapp-login-sync-gate";
+import { WhatsAppPhoneDisconnectedCard } from "@/components/whatsapp/whatsapp-phone-disconnected-card";
 import Link from "next/link";
 
 interface ConversasPageProps {
@@ -17,6 +19,21 @@ interface ConversasPageProps {
   }>;
 }
 
+// Detecta sync em andamento (mesma logica do /api/whatsapp/instance/status).
+// Em modulo (fora do render do server component) para nao acionar a regra de
+// pureza do react-hooks ao usar Date.now().
+const SYNC_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
+function isSyncInProgress(inst: WhatsAppInstance | null): boolean {
+  if (!inst?.last_manual_sync_at) return false;
+  const startedMs = Date.parse(inst.last_manual_sync_at);
+  if (!Number.isFinite(startedMs)) return false;
+  if (Date.now() - startedMs > SYNC_PROGRESS_TIMEOUT_MS) return false;
+  if (!inst.sync_finished_at) return true;
+  const finishedMs = Date.parse(inst.sync_finished_at);
+  if (!Number.isFinite(finishedMs)) return true;
+  return finishedMs < startedMs;
+}
+
 export default async function ConversasPage({
   params,
   searchParams,
@@ -24,7 +41,7 @@ export default async function ConversasPage({
   const { domain } = await params;
   const { chat, phone, leadId, justConnected } = await searchParams;
 
-  const [{ user }, company] = await Promise.all([
+  const [{ user, role }, company] = await Promise.all([
     getAuthSession(),
     getDomainCompany(domain),
   ]);
@@ -41,22 +58,21 @@ export default async function ConversasPage({
     .maybeSingle();
   const instance = instanceRow as WhatsAppInstance | null;
 
-  // Detecta sync em andamento (mesma logica do /api/whatsapp/instance/status).
-  // Usado para mostrar o banner amigavel "Sincronizando suas conversas..."
-  // quando o usuario acabou de conectar e veio direto pra essa aba — sem
-  // esperar o sync terminar em Settings.
-  const SYNC_PROGRESS_TIMEOUT_MS = 10 * 60 * 1000;
-  function isSyncInProgress(inst: WhatsAppInstance | null): boolean {
-    if (!inst?.last_manual_sync_at) return false;
-    const startedMs = Date.parse(inst.last_manual_sync_at);
-    if (!Number.isFinite(startedMs)) return false;
-    if (Date.now() - startedMs > SYNC_PROGRESS_TIMEOUT_MS) return false;
-    if (!inst.sync_finished_at) return true;
-    const finishedMs = Date.parse(inst.sync_finished_at);
-    if (!Number.isFinite(finishedMs)) return true;
-    return finishedMs < startedMs;
-  }
   const initialSyncInProgress = isSyncInProgress(instance);
+
+  // Distingue a queda PELO CELULAR da desconexao feita pelo CRM: o
+  // /instance/disconnect zera o `evolution_token`; o webhook de queda externa
+  // (celular) o mantem. Logo, status disconnected + token presente = celular.
+  const phoneDisconnected =
+    !!instance &&
+    instance.status === "disconnected" &&
+    Boolean(instance.evolution_token);
+
+  if (phoneDisconnected) {
+    return (
+      <WhatsAppPhoneDisconnectedCard domain={domain} isAdmin={role === "admin"} />
+    );
+  }
 
   if (!instance || instance.status !== "connected") {
     return (
@@ -86,15 +102,15 @@ export default async function ConversasPage({
   //    saiu da aba e voltou enquanto o sync ainda roda).
   // Em ambos os casos escondemos a lista inteira ate o sync terminar — assim
   // o usuario nunca ve contatos/mensagens desatualizados nem aquele banner
-  // "Sincronizando" por cima da lista. `autostart` (conexao nova) instrui o
-  // loader a disparar o sync inicial; na re-entrada (sync ja rodando) ele
-  // apenas acompanha ate concluir. Ao terminar, o loader limpa a URL e
-  // recarrega a lista ja atualizada.
+  // "Sincronizando" por cima da lista. mode="connect" (conexao nova) instrui o
+  // loader a esperar o warmup e disparar o sync inicial; mode="follow"
+  // (sync ja rodando) ele apenas acompanha ate concluir. Ao terminar, o loader
+  // limpa a URL e recarrega a lista ja atualizada.
   if (justConnected === "1" || initialSyncInProgress) {
     return (
       <WhatsAppConnectLoader
         domain={domain}
-        autostart={justConnected === "1"}
+        mode={justConnected === "1" ? "connect" : "follow"}
       />
     );
   }
@@ -211,16 +227,22 @@ export default async function ConversasPage({
   const hasMore = allChats.length > PAGE_SIZE;
   const chats = hasMore ? allChats.slice(0, PAGE_SIZE) : allChats;
 
+  // Gate de login: na primeira visita a Conversas nesta sessao do browser,
+  // mostra o card de carregamento e roda um catch-up antes de liberar a lista
+  // — para que mensagens/contatos acumulados enquanto o CRM estava fechado
+  // sejam atualizados antes do usuario interagir.
   return (
-    <ConversasContent
-      domain={domain}
-      companyId={company.id}
-      instance={instance}
-      initialChats={chats}
-      initialChatId={chat ?? null}
-      initialHasMore={hasMore}
-      pageSize={PAGE_SIZE}
-      initialSyncInProgress={initialSyncInProgress}
-    />
+    <WhatsAppLoginSyncGate domain={domain}>
+      <ConversasContent
+        domain={domain}
+        companyId={company.id}
+        instance={instance}
+        initialChats={chats}
+        initialChatId={chat ?? null}
+        initialHasMore={hasMore}
+        pageSize={PAGE_SIZE}
+        initialSyncInProgress={initialSyncInProgress}
+      />
+    </WhatsAppLoginSyncGate>
   );
 }

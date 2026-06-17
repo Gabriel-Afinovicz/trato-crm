@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { Input } from "@/components/ui/input";
+import { DEFAULT_CLINIC_GOALS } from "@/lib/constants/analytics-goals";
 import type { ClinicAnalyticsGoals } from "@/lib/types/database";
 
 /**
@@ -63,8 +64,12 @@ export function AnalyticsGoalsManager() {
     };
   }, [companyId, companyLoading]);
 
-  async function handleSave() {
-    if (!companyId || !goals) return;
+  /** Persiste um conjunto de metas e atualiza o estado/feedback. */
+  async function persist(
+    target: ClinicAnalyticsGoals,
+    successText: string
+  ) {
+    if (!companyId) return;
     setSaving(true);
     setFeedback(null);
     try {
@@ -73,9 +78,9 @@ export function AnalyticsGoalsManager() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           companyId,
-          appointment_pct: goals.appointment_pct,
-          attendance_pct: goals.attendance_pct,
-          closing_pct: goals.closing_pct,
+          appointment_pct: target.appointment_pct,
+          attendance_pct: target.attendance_pct,
+          closing_pct: target.closing_pct,
         }),
       });
       if (!res.ok) {
@@ -88,7 +93,7 @@ export function AnalyticsGoalsManager() {
       };
       setGoals(data.goals);
       setIsDefault(data.isDefault);
-      setFeedback({ type: "success", text: "Metas salvas com sucesso." });
+      setFeedback({ type: "success", text: successText });
     } catch (err) {
       setFeedback({
         type: "error",
@@ -97,6 +102,24 @@ export function AnalyticsGoalsManager() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSave() {
+    if (!goals) return;
+    void persist(goals, "Metas salvas com sucesso.");
+  }
+
+  /**
+   * "Manter assim mesmo": grava os padrões 40/40/30 como metas oficiais da
+   * clínica. Dá um caminho explícito para quem está satisfeito com os
+   * padrões — sem isso, o único botão era "Salvar metas" e não ficava
+   * claro que era preciso salvar para confirmar os valores sugeridos.
+   */
+  function handleKeepDefaults() {
+    void persist(
+      DEFAULT_CLINIC_GOALS,
+      "Tudo certo! Mantivemos os padrões 40 / 40 / 30."
+    );
   }
 
   if (loading || companyLoading) {
@@ -176,14 +199,27 @@ export function AnalyticsGoalsManager() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={saving}
-        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50"
-      >
-        {saving ? "Salvando..." : "Salvar metas"}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "Salvando..." : "Salvar metas"}
+        </button>
+        {isDefault && (
+          <button
+            type="button"
+            onClick={handleKeepDefaults}
+            disabled={saving}
+            title="Salvar os padrões 40 / 40 / 30 como metas da clínica"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            Manter assim mesmo
+          </button>
+        )}
+      </div>
     </div>
   );
 }

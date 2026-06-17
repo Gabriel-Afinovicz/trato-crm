@@ -91,6 +91,7 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
         leadName={typedLead.name}
         domain={domain}
         nextAppointment={nextAppointment}
+        isAdmin={role === "admin" || role === "super_admin"}
       />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
@@ -110,15 +111,17 @@ export default async function LeadDetailPage({ params }: LeadDetailPageProps) {
         </div>
 
         {/* Right column: timeline + add note */}
-        <div className="space-y-6 lg:col-span-2">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="space-y-6 lg:col-span-2 lg:h-0 lg:min-h-full lg:flex lg:flex-col lg:min-h-0">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:flex lg:flex-col lg:flex-1 lg:min-h-0">
             <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-400">
               Atividades
             </h3>
-            <LeadTimeline leadId={typedLead.id} initialActivities={activities} />
+            <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent">
+              <LeadTimeline leadId={typedLead.id} initialActivities={activities} />
+            </div>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm shrink-0">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-400">
               Nova Atividade
             </h3>

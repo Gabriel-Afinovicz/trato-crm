@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { confirm } from "@/components/ui/confirm";
 import type { WhatsAppInstance } from "@/lib/types/database";
+import { WA_SYNC_SIGNAL_KEY } from "@/components/whatsapp/whatsapp-connect-loader";
 
 interface StatusResponse {
   instance: WhatsAppInstance | null;
@@ -140,6 +141,11 @@ export function WhatsAppInstanceManager() {
     setSyncResult(null);
     setError(null);
     startSyncTick();
+    // Sinaliza ao WhatsAppSyncIndicator (header global) que um sync esta
+    // prestes a comecar — o indicador entra em poll ativo imediatamente.
+    try {
+      sessionStorage.setItem(WA_SYNC_SIGNAL_KEY, Date.now().toString());
+    } catch { /* SSR / sandbox */ }
     try {
       // `keepalive: true` permite que a requisicao continue mesmo se o
       // operador navegar para outra aba do CRM antes do sync terminar

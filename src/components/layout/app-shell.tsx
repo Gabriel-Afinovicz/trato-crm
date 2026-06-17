@@ -10,6 +10,7 @@ import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { NewLeadNotifier } from "./new-lead-notifier";
 import { WhatsAppSyncIndicator } from "./whatsapp-sync-indicator";
+import { WhatsAppDisconnectedBanner } from "./whatsapp-disconnected-banner";
 
 interface AppShellProps {
   domain: string;
@@ -89,6 +90,8 @@ export function AppShell({ domain, showSettings, children }: AppShellProps) {
             />
           </div>
         </header>
+        {/* Faixa global: WhatsApp caiu pelo celular (visivel em qualquer tela). */}
+        <WhatsAppDisconnectedBanner domain={domain} />
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </main>
       {/* Command palette global (Ctrl+K) — fica montado em todas as

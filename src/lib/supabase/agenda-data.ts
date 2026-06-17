@@ -48,9 +48,11 @@ export const getAgendaResources = cache(async (companyId: string) => {
         .order("name"),
     ]);
 
+  // "Profissional" do agendamento = qualquer membro ativo da clínica
+  // (operadores e admins), exceto o super_admin do sistema.
   const dentists =
-    ((dentistsRes.data as Pick<User, "id" | "name" | "is_dentist">[] | null) ??
-      []).filter((u) => u.is_dentist);
+    (dentistsRes.data as Pick<User, "id" | "name" | "is_dentist">[] | null) ??
+    [];
   return {
     rooms: (roomsRes.data as unknown as Room[]) ?? [],
     procedures: (proceduresRes.data as unknown as ProcedureType[]) ?? [],
@@ -60,48 +62,11 @@ export const getAgendaResources = cache(async (companyId: string) => {
   };
 });
 
-export interface AgendaViewer {
-  userId: string;
-  role: "admin" | "operator" | "super_admin";
-  tagIds: string[];
-}
-
-/**
- * Filtra agendamentos conforme a regra de visibilidade do card.
- * Admins (incluindo super_admin) veem tudo. Demais usuários veem:
- *   - clinic_wide
- *   - assigned_dentist quando o dentista é o próprio usuário
- *   - role_tag quando o usuário possui a tag
- *   - cards atribuídos a ele como dentista (dentist_id) sempre são visíveis
- */
-function filterByVisibility(
-  rows: AppointmentDetailed[],
-  viewer: AgendaViewer | null
-): AppointmentDetailed[] {
-  if (!viewer) return rows;
-  if (viewer.role === "admin" || viewer.role === "super_admin") return rows;
-  const tagSet = new Set(viewer.tagIds);
-  return rows.filter((a) => {
-    if (a.dentist_id === viewer.userId) return true;
-    switch (a.visibility) {
-      case "clinic_wide":
-        return true;
-      case "assigned_dentist":
-        return a.dentist_id === viewer.userId;
-      case "role_tag":
-        return a.visibility_tag_id ? tagSet.has(a.visibility_tag_id) : false;
-      default:
-        return true;
-    }
-  });
-}
-
 export const getAgendaSchedule = cache(
   async (
     companyId: string,
     startIso: string,
-    endIso: string,
-    viewer: AgendaViewer | null = null
+    endIso: string
   ): Promise<{
     appointments: AppointmentDetailed[];
     blocks: AgendaBlock[];
@@ -115,7 +80,7 @@ export const getAgendaSchedule = cache(
       supabase
         .from("appointments")
         .select(
-          `id, company_id, lead_id, dentist_id, room_id, procedure_type_id, starts_at, ends_at, status, notes, visibility, visibility_tag_id, created_at, updated_at,
+          `id, company_id, lead_id, dentist_id, room_id, procedure_type_id, starts_at, ends_at, status, notes, clinicorp_appointment_id, created_at, updated_at,
            leads!inner(name, phone),
            users:dentist_id(name),
            rooms:room_id(name, color),
@@ -162,8 +127,7 @@ export const getAgendaSchedule = cache(
       ends_at: r.ends_at,
       status: r.status,
       notes: r.notes,
-      visibility: r.visibility,
-      visibility_tag_id: r.visibility_tag_id,
+      clinicorp_appointment_id: r.clinicorp_appointment_id,
       created_at: r.created_at,
       updated_at: r.updated_at,
       lead_name: r.leads?.name ?? null,
@@ -177,7 +141,7 @@ export const getAgendaSchedule = cache(
     }));
 
     return {
-      appointments: filterByVisibility(appointments, viewer),
+      appointments,
       blocks: (blocksRes.data as unknown as AgendaBlock[]) ?? [],
       holidays: (holidaysRes.data as unknown as ClinicHoliday[]) ?? [],
     };

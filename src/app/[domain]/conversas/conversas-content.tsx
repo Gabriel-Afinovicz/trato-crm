@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useSession } from "@/components/layout/session-provider";
 import { LeadDetailsView } from "@/components/leads/lead-details-view";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/whatsapp/reactions";
 import { useWhatsAppEvents } from "@/lib/whatsapp/use-whatsapp-events";
 import { useWhatsAppHealth } from "@/lib/whatsapp/use-whatsapp-health";
+import { useWhatsAppConnection } from "@/lib/whatsapp/use-whatsapp-connection";
 import { isEditableTarget, hasCommandModifier } from "@/lib/utils/keyboard";
 import { SnippetPicker } from "@/components/conversas/snippet-picker";
 
@@ -955,6 +957,22 @@ export function ConversasContent({
   useEffect(() => {
     healthyRef.current = healthy;
   }, [healthy]);
+
+  // Reage em tempo real a uma queda PELO CELULAR enquanto o operador esta na
+  // aba: ao detectar, recarrega o server component da pagina, que entao troca
+  // a lista pelo card "WhatsApp desconectado pelo celular". O router.refresh e
+  // disparado uma unica vez por transicao (guarda via ref).
+  const router = useRouter();
+  const { phoneDisconnected } = useWhatsAppConnection(companyId, domain);
+  const phoneDisconnectedHandledRef = useRef(false);
+  useEffect(() => {
+    if (phoneDisconnected && !phoneDisconnectedHandledRef.current) {
+      phoneDisconnectedHandledRef.current = true;
+      router.refresh();
+    } else if (!phoneDisconnected) {
+      phoneDisconnectedHandledRef.current = false;
+    }
+  }, [phoneDisconnected, router]);
 
   // Polling de seguranca: a cada 10s sincroniza o que esta no banco (lista
   // de chats e mensagens do chat ativo) e, em paralelo, a cada

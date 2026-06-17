@@ -208,8 +208,6 @@ export interface ProcedureType {
   created_at: string;
 }
 
-export type AgendaVisibility = "assigned_dentist" | "role_tag" | "clinic_wide";
-
 export interface Appointment {
   id: string;
   company_id: string;
@@ -221,8 +219,8 @@ export interface Appointment {
   ends_at: string;
   status: AppointmentStatus;
   notes: string | null;
-  visibility: AgendaVisibility;
-  visibility_tag_id: string | null;
+  /** ID do agendamento na agenda da Clinicorp; null se ainda nao sincronizado. */
+  clinicorp_appointment_id: string | null;
   created_at: string;
   updated_at: string;
 }

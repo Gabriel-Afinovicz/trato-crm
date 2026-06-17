@@ -453,26 +453,43 @@ export function LeadKanbanBoard({
     const cols = columnsRef.current;
     const top = topScrollRef.current;
     if (!cols || !top) return;
-    let lock = false;
+
+    let activeSource: "cols" | "top" | null = null;
+    let timeoutId: any = null;
+
+    const setActiveSource = (src: "cols" | "top") => {
+      activeSource = src;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => {
+        activeSource = null;
+      }, 100);
+    };
+
     const onCols = () => {
-      if (lock) return;
-      lock = true;
+      if (activeSource === "top") return;
+      setActiveSource("cols");
       top.scrollLeft = cols.scrollLeft;
-      lock = false;
     };
+
     const onTop = () => {
-      if (lock) return;
-      lock = true;
+      if (activeSource === "cols") return;
+      setActiveSource("top");
       cols.scrollLeft = top.scrollLeft;
-      lock = false;
     };
+
     cols.addEventListener("scroll", onCols, { passive: true });
     top.addEventListener("scroll", onTop, { passive: true });
     // Garante alinhamento inicial.
     top.scrollLeft = cols.scrollLeft;
+
     return () => {
       cols.removeEventListener("scroll", onCols);
       top.removeEventListener("scroll", onTop);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
   }, [hasHorizontalOverflow]);
 
@@ -1049,7 +1066,7 @@ export function LeadKanbanBoard({
                 aria-label="Rolar colunas para a esquerda"
                 onClick={() => {
                   const cols = columnsRef.current;
-                  if (cols) cols.scrollBy({ left: -320, behavior: "smooth" });
+                  if (cols) cols.scrollBy({ left: -500, behavior: "smooth" });
                 }}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 active:scale-[0.93] transition-all duration-200 cursor-pointer"
               >
@@ -1074,7 +1091,7 @@ export function LeadKanbanBoard({
                 aria-label="Rolar colunas para a direita"
                 onClick={() => {
                   const cols = columnsRef.current;
-                  if (cols) cols.scrollBy({ left: 320, behavior: "smooth" });
+                  if (cols) cols.scrollBy({ left: 500, behavior: "smooth" });
                 }}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 hover:text-slate-900 active:scale-[0.93] transition-all duration-200 cursor-pointer"
               >

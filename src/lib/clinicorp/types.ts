@@ -33,6 +33,56 @@ export interface ClinicorpCreatePatientBody {
   Notes?: string;
 }
 
+/**
+ * Clinica/unidade retornada por GET /business/list. O `id` corresponde ao
+ * `Clinic_BusinessId` usado na criacao do agendamento.
+ */
+export interface ClinicorpBusiness {
+  id: string;
+  name: string;
+}
+
+/**
+ * Profissional retornado por GET /professional/list_all_professionals. O `id`
+ * corresponde ao `Dentist_PersonId` usado (opcionalmente) no agendamento.
+ */
+export interface ClinicorpProfessional {
+  id: string;
+  name: string;
+}
+
+/**
+ * Body do POST /appointment/create_appointment_by_api.
+ *
+ * Observacao: a semantica exata de alguns campos (formato de `date`,
+ * obrigatoriedade de `Patient_PersonId` vs nome/telefone) tem lacunas na
+ * documentacao oficial e sera confirmada pela rota de teste em conta real.
+ * Por isso os campos opcionais sao enviados apenas quando presentes.
+ */
+export interface ClinicorpCreateAppointmentBody {
+  subscriber_id: string;
+  Clinic_BusinessId: string;
+  PatientName: string;
+  MobilePhone: string;
+  /** Data do agendamento no fuso da clinica (YYYY-MM-DD). */
+  date: string;
+  /** Horario de inicio no fuso da clinica (HH:mm). */
+  fromTime: string;
+  /** Horario de fim no fuso da clinica (HH:mm). */
+  toTime: string;
+  Email?: string;
+  Dentist_PersonId?: string;
+  Patient_PersonId?: string;
+  Notes?: string;
+}
+
+/** Item do array retornado por create_appointment_by_api: [{Status, id}]. */
+export interface ClinicorpCreateAppointmentResult {
+  Status?: string;
+  id?: string | number;
+  [key: string]: unknown;
+}
+
 /** Item de campanha retornado por GET /crm/list_active_campaigns. */
 export interface ClinicorpCampaign {
   /**

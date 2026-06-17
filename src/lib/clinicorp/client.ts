@@ -16,10 +16,14 @@
 import "server-only";
 import type {
   ClinicorpAddLeadBody,
+  ClinicorpBusiness,
   ClinicorpCampaign,
+  ClinicorpCreateAppointmentBody,
+  ClinicorpCreateAppointmentResult,
   ClinicorpCreatePatientBody,
   ClinicorpCredentials,
   ClinicorpGenericResponse,
+  ClinicorpProfessional,
 } from "./types";
 
 const BASE_URL = "https://api.clinicorp.com/rest/v1";
@@ -139,6 +143,146 @@ function normalizeCampaigns(raw: unknown): ClinicorpCampaign[] {
     .filter((c) => c.name.trim().length > 0);
 }
 
+/** Extrai um array de respostas que podem vir como [], {data:[]} ou {items:[]}. */
+function toArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  for (const key of ["data", "items", "list", "results"]) {
+    const v = (raw as Record<string, unknown> | null)?.[key];
+    if (Array.isArray(v)) return v;
+  }
+  return [];
+}
+
+function firstString(
+  obj: Record<string, unknown>,
+  keys: string[]
+): string | null {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return null;
+}
+
+/** Normaliza GET /business/list -> ClinicorpBusiness[] (id = Clinic_BusinessId). */
+function normalizeBusinesses(raw: unknown): ClinicorpBusiness[] {
+  return toArray(raw)
+    .map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const id = firstString(obj, [
+        "Clinic_BusinessId",
+        "BusinessId",
+        "Business_Id",
+        "id",
+        "Id",
+      ]);
+      const name =
+        firstString(obj, ["Name", "BusinessName", "name", "FantasyName"]) ??
+        id ??
+        "";
+      return { id: id ?? "", name: String(name) };
+    })
+    .filter((b) => b.id.length > 0);
+}
+
+/** Normaliza GET /professional/list_all_professionals -> ClinicorpProfessional[]. */
+function normalizeProfessionals(raw: unknown): ClinicorpProfessional[] {
+  return toArray(raw)
+    .map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const id = firstString(obj, [
+        "Dentist_PersonId",
+        "PersonId",
+        "Person_Id",
+        "id",
+        "Id",
+      ]);
+      const name =
+        firstString(obj, ["Name", "FullName", "name", "PersonName"]) ??
+        id ??
+        "";
+      return { id: id ?? "", name: String(name) };
+    })
+    .filter((p) => p.id.length > 0);
+}
+
+/**
+ * Serializa o corpo convertendo IDs numericos (que a Clinicorp REJEITA quando
+ * vem como string — ex.: "Dentist_PersonId nao pode ser string") em numeros
+ * JSON CRUS. Faz via placeholders para preservar a precisao exata mesmo em
+ * inteiros maiores que 2^53 (os IDs da Clinicorp tem ~16-19 digitos), evitando
+ * passar pelo `Number()` do JS.
+ */
+function jsonWithNumericIds(
+  obj: Record<string, unknown>,
+  numericKeys: string[]
+): string {
+  const clone: Record<string, unknown> = { ...obj };
+  const placeholders: Array<[string, string]> = [];
+  let i = 0;
+  for (const key of numericKeys) {
+    const v = clone[key];
+    if (typeof v === "string" && /^\d+$/.test(v)) {
+      const ph = `__NUMID_${i++}__`;
+      placeholders.push([ph, v]);
+      clone[key] = ph;
+    }
+  }
+  let json = JSON.stringify(clone);
+  for (const [ph, digits] of placeholders) {
+    json = json.replace(`"${ph}"`, digits);
+  }
+  return json;
+}
+
+/**
+ * Extrai o id do agendamento da resposta de create_appointment_by_api,
+ * tolerando variacoes de chave entre contas/versoes (id, Id, AppointmentId,
+ * ScheduleId, etc.). Retorna null se nenhum id reconhecivel estiver presente.
+ */
+export function extractClinicorpAppointmentId(
+  results: ClinicorpCreateAppointmentResult[]
+): string | null {
+  const first = results?.[0] as Record<string, unknown> | undefined;
+  if (!first) return null;
+  for (const k of [
+    "id",
+    "Id",
+    "AppointmentId",
+    "Appointment_Id",
+    "Appointment_PersonId",
+    "ScheduleId",
+    "Schedule_Id",
+    "appointment_id",
+    "_id",
+  ]) {
+    const v = first[k];
+    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return null;
+}
+
+/**
+ * Extrai o PatientId/Patient_PersonId da resposta de GET /patient/get
+ * (objeto unico ou array), tolerando variacoes de chave. Retorna null se nao
+ * encontrar um paciente.
+ */
+export function extractClinicorpPatientId(raw: unknown): string | null {
+  const obj = (Array.isArray(raw) ? raw[0] : raw) as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  if (!obj) return null;
+  for (const k of ["PatientId", "Patient_PersonId", "PersonId", "id", "Id"]) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return null;
+}
+
 export const clinicorp = {
   /**
    * Lista campanhas ativas. Usado tanto pelo "Testar conexão" quanto para
@@ -181,15 +325,82 @@ export const clinicorp = {
   /** Busca paciente (para evitar duplicatas). Best-effort. */
   async getPatient(
     creds: ClinicorpCredentials,
-    params: { phone?: string; email?: string }
+    params: { phone?: string; email?: string; name?: string }
   ): Promise<{ data: ClinicorpGenericResponse; httpStatus: number }> {
     const search = new URLSearchParams({ subscriber_id: creds.subscriber_id });
     if (params.phone) search.set("Phone", params.phone);
     if (params.email) search.set("Email", params.email);
+    if (params.name) search.set("Name", params.name);
     return request<ClinicorpGenericResponse>(
       `/patient/get?${search.toString()}`,
       creds,
       { method: "GET" }
+    );
+  },
+
+  /** Lista clinicas/unidades (para configurar o Clinic_BusinessId). */
+  async listBusinesses(
+    creds: ClinicorpCredentials
+  ): Promise<{ businesses: ClinicorpBusiness[]; httpStatus: number }> {
+    const { data, httpStatus } = await request<unknown>(
+      `/business/list?subscriber_id=${encodeURIComponent(creds.subscriber_id)}`,
+      creds,
+      { method: "GET" }
+    );
+    return { businesses: normalizeBusinesses(data), httpStatus };
+  },
+
+  /** Lista profissionais (para mapear dentistas do CRM -> Dentist_PersonId). */
+  async listProfessionals(
+    creds: ClinicorpCredentials
+  ): Promise<{ professionals: ClinicorpProfessional[]; httpStatus: number }> {
+    const { data, httpStatus } = await request<unknown>(
+      `/professional/list_all_professionals?subscriber_id=${encodeURIComponent(creds.subscriber_id)}`,
+      creds,
+      { method: "GET" }
+    );
+    return { professionals: normalizeProfessionals(data), httpStatus };
+  },
+
+  /**
+   * Cria um agendamento direto na agenda da Clinicorp.
+   * Resposta esperada: array `[{ Status: "CREATED", id }]`. Tolerante a objeto
+   * unico (normalizado para array de 1 item).
+   */
+  async createAppointmentByApi(
+    creds: ClinicorpCredentials,
+    body: Omit<ClinicorpCreateAppointmentBody, "subscriber_id">
+  ): Promise<{ data: ClinicorpCreateAppointmentResult[]; httpStatus: number }> {
+    const { data, httpStatus } = await request<unknown>(
+      "/appointment/create_appointment_by_api",
+      creds,
+      {
+        method: "POST",
+        body: jsonWithNumericIds(
+          { subscriber_id: creds.subscriber_id, ...body },
+          ["Clinic_BusinessId", "Dentist_PersonId", "Patient_PersonId"]
+        ),
+      }
+    );
+    const arr = Array.isArray(data) ? data : data ? [data] : [];
+    return { data: arr as ClinicorpCreateAppointmentResult[], httpStatus };
+  },
+
+  /** Cancela um agendamento na Clinicorp pelo id retornado na criacao. */
+  async cancelAppointment(
+    creds: ClinicorpCredentials,
+    appointmentId: string
+  ): Promise<{ data: ClinicorpGenericResponse; httpStatus: number }> {
+    return request<ClinicorpGenericResponse>(
+      "/appointment/cancel_appointment",
+      creds,
+      {
+        method: "POST",
+        body: jsonWithNumericIds(
+          { subscriber_id: creds.subscriber_id, id: appointmentId },
+          ["id"]
+        ),
+      }
     );
   },
 };

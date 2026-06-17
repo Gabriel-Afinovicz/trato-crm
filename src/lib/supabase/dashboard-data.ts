@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "./server";
+import { DEFAULT_CLINIC_GOALS } from "@/lib/constants/analytics-goals";
 import {
   startOfMonthInTz,
   startOfNextMonthInTz,
@@ -17,17 +18,9 @@ import type {
   User,
 } from "@/lib/types/database";
 
-/**
- * Default das metas analíticas aplicado quando a clínica ainda não definiu
- * valores em `companies.settings.analytics_goals`. Mantém uma única fonte
- * de verdade entre server (dashboard) e client (form de configuração) para
- * que o aviso "estamos usando padrões" reflita o mesmo conjunto.
- */
-export const DEFAULT_CLINIC_GOALS: ClinicAnalyticsGoals = {
-  appointment_pct: 40,
-  attendance_pct: 40,
-  closing_pct: 30,
-};
+// Reexporta o default (definido em `constants/` para ser client-safe) de
+// modo que os imports de servidor existentes continuem funcionando.
+export { DEFAULT_CLINIC_GOALS };
 
 export const getDashboardData = cache(
   async (companyId: string, allowedSectorIds?: string[] | null) => {

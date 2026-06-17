@@ -3,16 +3,32 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+export type WhatsAppLoaderMode = "connect" | "follow" | "login";
+
 interface WhatsAppConnectLoaderProps {
   domain: string;
   /**
-   * `true` quando o usuario ACABOU de conectar (?justConnected=1): o loader
-   * espera o warmup e dispara o sync inicial. `false` quando a pagina abriu
-   * com um sync JA em andamento (ex.: o operador saiu da aba e voltou): o
-   * loader apenas acompanha ate concluir, sem disparar nada nem esperar o
-   * warmup.
+   * Define o que o loader faz:
+   *  - "connect": usuario ACABOU de conectar (?justConnected=1). Espera o
+   *    warmup (Evolution baixando a lista apos o QR) e dispara o sync de
+   *    importacao (/instance/sync, admin).
+   *  - "login": primeira visita a Conversas na sessao do browser (apos login).
+   *    Sem warmup, dispara um catch-up (/post-login-sync, funciona p/ qualquer
+   *    usuario) para trazer as ultimas mensagens/contatos antes de liberar.
+   *  - "follow": ja existe um sync em andamento (ex.: voltou para a aba). Apenas
+   *    acompanha ate concluir, sem disparar nada nem esperar warmup.
    */
-  autostart?: boolean;
+  mode?: WhatsAppLoaderMode;
+  /**
+   * Quando fornecido, e chamado no lugar da navegacao padrao ao concluir.
+   * Usado pelo gate de login para apenas revelar a lista (sem trocar de rota).
+   */
+  onComplete?: () => void;
+}
+
+/** Marca, por sessao do browser, que o catch-up de login ja rodou nesta aba. */
+export function whatsappLoginSyncKey(domain: string): string {
+  return `wa:convLoginSync:${domain}`;
 }
 
 // Espera antes de disparar o sync inicial. Logo apos o QR ser lido a
@@ -28,6 +44,12 @@ const MAX_WAIT_MS = 4 * 60_000;
 const POLL_MS = 2_500;
 // Cadencia da animacao da barra.
 const TICK_MS = 350;
+
+// Chave de sessionStorage usada para sinalizar ao WhatsAppSyncIndicator
+// (montado no header global) que um sync esta prestes a comecar ou em
+// andamento. Permite que o indicador faca poll ativo imediatamente ao
+// inves de esperar o ciclo idle de 12s.
+export const WA_SYNC_SIGNAL_KEY = "wa:syncSignal";
 
 interface SyncStatus {
   syncInProgress?: boolean;
@@ -46,9 +68,18 @@ function stepLabel(percent: number): string {
   return "Organizando contatos e mensagens...";
 }
 
+/** Grava um sinal em sessionStorage para que o WhatsAppSyncIndicator (no
+ *  header) entre em modo de poll ativo imediatamente. */
+function signalSyncStart() {
+  try {
+    sessionStorage.setItem(WA_SYNC_SIGNAL_KEY, Date.now().toString());
+  } catch { /* SSR / iframe sandbox */ }
+}
+
 export function WhatsAppConnectLoader({
   domain,
-  autostart = true,
+  mode = "connect",
+  onComplete,
 }: WhatsAppConnectLoaderProps) {
   const router = useRouter();
   const [percent, setPercent] = useState(4);
@@ -60,11 +91,18 @@ export function WhatsAppConnectLoader({
   const animBaseRef = useRef<number>(Date.now());
   const doneRef = useRef(false);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Rastreia se o sync ja foi disparado neste ciclo (evita disparar duas
+  // vezes — uma no fluxo normal e outra no cleanup).
+  const syncFiredRef = useRef(false);
 
   // Avanca a barra para 100% e revela a aba Conversas ja sincronizada.
-  // router.replace remove o ?justConnected (evitando re-exibir o loader em
-  // refresh) e router.refresh reexecuta o server component da pagina, que
-  // agora encontra as conversas atualizadas.
+  // Marca a sessao como sincronizada (para o gate de login nao reexibir o card
+  // a cada navegacao nem duplicar com o fluxo de conexao). Em seguida:
+  //  - se onComplete foi passado (gate de login): apenas chama-o, mantendo a
+  //    rota atual e deixando o gate revelar a lista;
+  //  - senao (loader de pagina inteira): router.replace remove o ?justConnected
+  //    e router.refresh reexecuta o server component, que agora encontra as
+  //    conversas atualizadas.
   function reveal() {
     if (doneRef.current) return;
     doneRef.current = true;
@@ -72,16 +110,33 @@ export function WhatsAppConnectLoader({
       clearInterval(tickRef.current);
       tickRef.current = null;
     }
+    try {
+      sessionStorage.setItem(whatsappLoginSyncKey(domain), "1");
+    } catch {
+      /* SSR / iframe sandbox */
+    }
     setPercent(100);
     setTimeout(() => {
-      router.replace(`/${domain}/conversas`);
-      router.refresh();
+      if (onComplete) {
+        onComplete();
+      } else {
+        router.replace(`/${domain}/conversas`);
+        router.refresh();
+      }
     }, 800);
   }
 
   useEffect(() => {
     let cancelled = false;
     animBaseRef.current = Date.now();
+    syncFiredRef.current = false;
+
+    // Sinaliza imediatamente para o header (WhatsAppSyncIndicator) que um sync
+    // de importacao vai comecar. So vale para "connect": o catch-up de login
+    // usa /post-login-sync, que nao alimenta o indicador do header.
+    if (mode === "connect") {
+      signalSyncStart();
+    }
 
     // Animacao estimada: curva que desacelera e nunca passa de 95% ate o
     // sync realmente terminar. Mantida monotonica (so sobe) para nao "voltar".
@@ -118,9 +173,50 @@ export function WhatsAppConnectLoader({
       }
     }
 
+    /** Dispara o sync (POST) e retorna true se terminou com sucesso. */
+    async function fireSync(): Promise<boolean> {
+      if (syncFiredRef.current) return false;
+      syncFiredRef.current = true;
+      signalSyncStart();
+      try {
+        const res = await fetch("/api/whatsapp/instance/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain }),
+          keepalive: true,
+        });
+        if (res.ok) return true;
+        if (res.status === 429) {
+          // Outro admin/aba ja estava sincronizando: acompanha pelo status.
+          await pollUntilFinished();
+          return true;
+        }
+        return true; // 403/500/etc: nao prende o usuario
+      } catch {
+        return true; // erro de rede: libera a aba
+      }
+    }
+
+    /** Catch-up de login: traz ultimas conversas/mensagens via post-login-sync
+     *  (funciona para qualquer usuario do tenant, inclusive operadores). E
+     *  sincrono no servidor — quando resolve, ja podemos revelar. */
+    async function fireLoginCatchup(): Promise<void> {
+      try {
+        await fetch("/api/whatsapp/post-login-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          keepalive: true,
+        });
+      } catch {
+        /* erro de rede: libera a aba mesmo assim */
+      }
+    }
+
     async function run() {
-      // Caso 1: ja existe um sync rodando (ex.: voltei para a aba). Acompanha
-      // sem warmup e ajusta a animacao para o inicio real.
+      // Caso 1: ja existe um sync (de importacao) rodando — ex.: um admin
+      // disparou o sync ou o operador voltou para a aba. Acompanha sem warmup
+      // e ajusta a animacao para o inicio real.
       const initial = await fetchSyncStatus();
       if (cancelled) return;
       if (initial?.syncInProgress) {
@@ -133,40 +229,28 @@ export function WhatsAppConnectLoader({
         return;
       }
 
-      // Caso 2: conexao nova e nada rodando ainda -> warmup + dispara o sync.
-      if (autostart) {
+      // Caso 2: conexao nova (warmup + sync de importacao admin).
+      if (mode === "connect") {
         await sleep(WARMUP_MS);
         if (cancelled) return;
-        try {
-          // A rota de sync e sincrona: so resolve quando todo o trabalho
-          // termina. Logo, o POST resolvendo com 200 ja e o sinal de 100%.
-          const res = await fetch("/api/whatsapp/instance/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ domain }),
-            keepalive: true,
-          });
-          if (cancelled) return;
-          if (res.ok) {
-            reveal();
-            return;
-          }
-          if (res.status === 429) {
-            // Outro admin/aba ja estava sincronizando: acompanha pelo status.
-            await pollUntilFinished();
-            if (!cancelled) reveal();
-            return;
-          }
-          // 403/500/etc: nao prende o usuario — libera a aba assim mesmo.
+        const ok = await fireSync();
+        if (!cancelled && ok) {
           reveal();
-        } catch {
-          if (!cancelled) reveal();
         }
         return;
       }
 
-      // Caso 3: nao ha sync em andamento e nao e conexao nova -> nada a
-      // fazer; revela a lista (ja esta atualizada).
+      // Caso 3: primeira visita a Conversas na sessao (apos login). Sem warmup:
+      // a instancia ja esta conectada, so precisamos buscar o que chegou
+      // enquanto o CRM estava fechado, antes de liberar a lista.
+      if (mode === "login") {
+        await fireLoginCatchup();
+        if (!cancelled) reveal();
+        return;
+      }
+
+      // Caso 4 ("follow"): nao ha sync em andamento e nada a disparar -> revela
+      // a lista (ja esta atualizada).
       reveal();
     }
 
@@ -190,9 +274,24 @@ export function WhatsAppConnectLoader({
         clearInterval(tickRef.current);
         tickRef.current = null;
       }
+
+      // CRITICO (so no fluxo de conexao): se o usuario navegou para outra aba
+      // DURANTE o warmup e o sync ainda nao foi disparado, disparamos agora com
+      // keepalive para que o servidor processe mesmo com a aba fechada. Sem
+      // isso, o sync nunca roda e a barrinha do header nunca aparece.
+      if (mode === "connect" && !syncFiredRef.current && !doneRef.current) {
+        syncFiredRef.current = true;
+        signalSyncStart();
+        fetch("/api/whatsapp/instance/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ domain }),
+          keepalive: true,
+        }).catch(() => { /* fire-and-forget */ });
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [domain, autostart]);
+  }, [domain, mode]);
 
   return (
     <div className="flex h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-white p-6">

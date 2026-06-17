@@ -180,8 +180,9 @@ export function LeadTable({ domain }: LeadTableProps) {
     return map;
   }, [stages]);
 
-  const showInstructions =
-    filters.state.categories.length === 0 && !filters.state.q;
+  const [totalCompanyLeads, setTotalCompanyLeads] = useState<number | null>(null);
+
+  const showInstructions = totalCompanyLeads === 0;
 
   const fetchPage = useCallback(async () => {
     if (!companyId) return;
@@ -212,10 +213,6 @@ export function LeadTable({ domain }: LeadTableProps) {
       url.searchParams.set("page", String(filters.state.page));
       url.searchParams.set("pageSize", String(PAGE_SIZE));
 
-      // Só busca a lista se há filtros — sem categoria nem busca, mostramos
-      // estado instrutivo (mas a minidash continua sendo carregada).
-      const wantsList = !showInstructions;
-
       const miniUrl = new URL("/api/leads/minidash", window.location.origin);
       miniUrl.searchParams.set("companyId", companyId);
       miniUrl.searchParams.set("start", effectiveRange.start);
@@ -223,10 +220,20 @@ export function LeadTable({ domain }: LeadTableProps) {
       if (filters.state.sector) {
         miniUrl.searchParams.set("sector", filters.state.sector);
       }
-      const [listRes, miniRes] = await Promise.all([
-        wantsList ? fetch(url.toString()) : Promise.resolve(null),
+
+      const supabase = createClient();
+      const [listRes, miniRes, countRes] = await Promise.all([
+        fetch(url.toString()),
         fetch(miniUrl.toString()),
+        supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId),
       ]);
+
+      if (countRes && !countRes.error && countRes.count !== null) {
+        setTotalCompanyLeads(countRes.count);
+      }
 
       if (listRes) {
         if (!listRes.ok) throw new Error("list fetch failed");
@@ -239,7 +246,6 @@ export function LeadTable({ domain }: LeadTableProps) {
 
         // Tags do batch atual (lookup leve por página).
         if (data.items.length > 0) {
-          const supabase = createClient();
           const leadIds = data.items.map((l) => l.id);
           const [allTagsRes, leadTagRowsRes] = await Promise.all([
             supabase
@@ -295,7 +301,6 @@ export function LeadTable({ domain }: LeadTableProps) {
     filters.state.source,
     filters.state.tags,
     filters.state.page,
-    showInstructions,
   ]);
 
   useEffect(() => {
@@ -364,7 +369,7 @@ export function LeadTable({ domain }: LeadTableProps) {
       const res = await fetch("/api/leads/bulk-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadIds: ids, ...payload }),
+        body: JSON.stringify({ companyId, leadIds: ids, ...payload }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { useCurrentCompany } from "@/hooks/use-current-company";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send-from-client";
 import type {
   AppointmentDetailed,
@@ -142,6 +143,7 @@ export function AppointmentActions({
   onEdit,
   onScheduleReturn,
 }: AppointmentActionsProps) {
+  const { companyId } = useCurrentCompany();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<{ message: string; chatId?: string } | null>(
@@ -198,6 +200,18 @@ export function AppointmentActions({
     if (e) {
       setError(`Erro ao alterar status: ${e.message}`);
       return;
+    }
+    // Cancelar no CRM tambem cancela na Clinicorp (fire-and-forget).
+    if (status === "cancelled" && appointment.clinicorp_appointment_id && companyId) {
+      void fetch("/api/appointments/sync-clinicorp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          action: "cancel",
+          clinicorpAppointmentId: appointment.clinicorp_appointment_id,
+        }),
+      }).catch(() => {});
     }
     onChanged();
   }

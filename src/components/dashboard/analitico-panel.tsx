@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { useSession } from "@/components/layout/session-provider";
 import { FunnelKpiCard, type FunnelKpiAccent } from "./funnel-kpi-card";
 import {
   DateRangePicker,
@@ -133,13 +134,25 @@ export function AnaliticoPanel({
   initialRange,
 }: AnaliticoPanelProps) {
   const { companyId } = useCurrentCompany();
+  const { profile } = useSession();
   const params = useParams<{ domain?: string }>();
   const domain = params?.domain;
+
+  // Só admin da clínica (ou super_admin) pode persistir metas — o PUT no
+  // servidor valida isso. Escondemos a ação de escrita para operadores
+  // para não oferecer um botão que retornaria 403.
+  const canEditGoals =
+    profile?.role === "admin" || profile?.role === "super_admin";
 
   const [range, setRange] = useState(initialRange);
   const [kpis, setKpis] = useState<AnaliticoKpis>(initialKpis);
   const [goals, setGoals] = useState<ClinicAnalyticsGoals>(initialGoals);
   const [isDefaultGoals, setIsDefaultGoals] = useState(initialIsDefaultGoals);
+  // Estado da ação "Manter assim mesmo": persiste os padrões atuais como
+  // metas oficiais da clínica para que o aviso desapareça sem precisar ir
+  // até as Configurações.
+  const [keepingDefaults, setKeepingDefaults] = useState(false);
+  const [keepError, setKeepError] = useState<string | null>(null);
   const [showRangePicker, setShowRangePicker] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
   // Operador restrito por setor: esconde o filtro (o servidor ja força
@@ -261,6 +274,45 @@ export function AnaliticoPanel({
       void fetchKpis(range, sectorId);
     });
   }
+
+  /**
+   * "Manter assim mesmo": grava os padrões atuais (40/40/30) como metas
+   * oficiais da clínica. Resolve o caso em que o gestor está satisfeito com
+   * os padrões mas não sabe que precisaria abrir as Configurações e salvar.
+   */
+  const handleKeepDefaults = useCallback(async () => {
+    if (!companyId || keepingDefaults) return;
+    setKeepingDefaults(true);
+    setKeepError(null);
+    try {
+      const res = await fetch("/api/clinic/analytics-goals", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          appointment_pct: goals.appointment_pct,
+          attendance_pct: goals.attendance_pct,
+          closing_pct: goals.closing_pct,
+        }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || "Não foi possível salvar.");
+      }
+      const data = (await res.json()) as {
+        goals: ClinicAnalyticsGoals;
+        isDefault: boolean;
+      };
+      setGoals(data.goals);
+      setIsDefaultGoals(data.isDefault);
+    } catch (e) {
+      setKeepError(
+        e instanceof Error ? e.message : "Não foi possível salvar."
+      );
+    } finally {
+      setKeepingDefaults(false);
+    }
+  }, [companyId, goals, keepingDefaults]);
 
   const cards = useMemo(() => {
     const totalLeads = kpis.total_leads;
@@ -390,20 +442,39 @@ export function AnaliticoPanel({
       )}
  
       {isDefaultGoals && domain && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 backdrop-blur-sm px-4 py-3 text-xs text-amber-900 shadow-sm transition-all duration-300">
-          <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-          </svg>
-          <p>
-            Sua organização ainda não definiu metas analíticas — estamos
-            usando os padrões 40 / 40 / 30.{" "}
+        <div className="flex flex-col gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 backdrop-blur-sm px-4 py-3 text-xs text-amber-900 shadow-sm transition-all duration-300 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2">
+            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <p>
+              Sua organização ainda não definiu metas analíticas — estamos
+              usando os padrões 40 / 40 / 30.
+              {keepError && (
+                <span className="mt-1 block font-medium text-red-600">
+                  {keepError}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <Link
               href={`/${domain}/settings?tab=analytics-goals`}
-              className="font-semibold underline hover:text-amber-700"
+              className="inline-flex items-center rounded-lg bg-amber-500 px-3 py-1.5 font-semibold text-white shadow-sm transition-all hover:bg-amber-600 active:scale-[0.97] duration-200"
             >
               Configurar agora
             </Link>
-          </p>
+            {canEditGoals && (
+              <button
+                type="button"
+                onClick={handleKeepDefaults}
+                disabled={keepingDefaults}
+                className="inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-semibold text-amber-800 shadow-sm transition-all hover:bg-amber-100 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 duration-200"
+              >
+                {keepingDefaults ? "Salvando..." : "Manter assim mesmo"}
+              </button>
+            )}
+          </div>
         </div>
       )}
  

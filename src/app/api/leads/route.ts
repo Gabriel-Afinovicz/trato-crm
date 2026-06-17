@@ -9,7 +9,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import { STAGE_CATEGORIES, type StageCategory } from "@/lib/types/database";
-import { syncLeadCreated } from "@/lib/integrations/clinicorp-service";
+import {
+  syncLeadCreated,
+  syncAppointmentCreated,
+} from "@/lib/integrations/clinicorp-service";
 
 // Body do POST /api/leads. Quando `appointment` esta presente, a criacao
 // vira atomica via RPC `create_lead_with_appointment`. Sem appointment,
@@ -245,6 +248,11 @@ export async function POST(req: NextRequest) {
   // valores se algo falhar no client.
   const supabase = await createClient();
   const payload = {
+    // Empresa do contexto (domínio que está sendo visualizado). A RPC usa
+    // este valor para super_admin criar leads na empresa correta em vez de
+    // cair na empresa do próprio perfil. Demais usuários ficam restritos à
+    // própria empresa pela própria RPC.
+    company_id: companyId,
     lead,
     appointment: body.appointment ?? null,
     custom_field_values: Array.isArray(body.custom_field_values)
@@ -309,6 +317,14 @@ export async function POST(req: NextRequest) {
   const newLeadId = (data as { lead_id?: string } | null)?.lead_id;
   if (newLeadId) {
     syncLeadCreated(companyId, newLeadId);
+  }
+
+  // Se o lead foi criado ja com agendamento ("Ja agendou?"), reflete na agenda
+  // da Clinicorp (fire-and-forget). Nunca bloqueia a criacao do lead.
+  const newAppointmentId = (data as { appointment_id?: string } | null)
+    ?.appointment_id;
+  if (newAppointmentId) {
+    syncAppointmentCreated(companyId, newAppointmentId);
   }
 
   return NextResponse.json(data);

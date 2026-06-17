@@ -12,6 +12,10 @@ export type ClinicorpAction =
   | "list_campaigns"
   | "add_leads"
   | "create_patient"
+  | "create_appointment"
+  | "cancel_appointment"
+  | "list_businesses"
+  | "list_professionals"
   | "generic";
 
 export interface ClinicorpFriendlyError {

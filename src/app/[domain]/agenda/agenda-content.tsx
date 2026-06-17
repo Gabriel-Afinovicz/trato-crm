@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types/database";
 import { AppointmentModal } from "@/components/agenda/appointment-modal";
 import { AppointmentActions } from "@/components/agenda/appointment-actions";
+import { useCurrentCompany } from "@/hooks/use-current-company";
 import {
   AgendaGrid,
   type AgendaDropTarget,
@@ -24,6 +25,10 @@ import {
 import { AgendaMonth } from "@/components/agenda/agenda-month";
 import { AgendaEmptyState } from "@/components/agenda/agenda-empty-state";
 import { isEditableTarget, hasCommandModifier } from "@/lib/utils/keyboard";
+import {
+  checkBusinessHours,
+  BUSINESS_HOURS_MESSAGES,
+} from "@/lib/agenda/business-hours";
 
 type ViewMode = "day" | "week" | "month";
 
@@ -44,9 +49,6 @@ interface AgendaContentProps {
   clinicHours: ClinicHours[];
   templates: MessageTemplate[];
 }
-
-const DEFAULT_HOUR_START = 8;
-const DEFAULT_HOUR_END = 19;
 
 function fmtDay(d: Date) {
   return d.toLocaleDateString("pt-BR", {
@@ -84,11 +86,6 @@ function toLocalIso(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-function timeToMinutes(t: string) {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
 export function AgendaContent({
   domain,
   viewMode,
@@ -108,6 +105,7 @@ export function AgendaContent({
 }: AgendaContentProps) {
   const router = useRouter();
   const params = useSearchParams();
+  const { companyId } = useCurrentCompany();
 
   type Prefill = {
     startsAt?: string;
@@ -162,27 +160,11 @@ export function AgendaContent({
     [days, hoursByWeekday]
   );
 
-  const { hourBoundsStart, hourBoundsEnd } = useMemo(() => {
-    let earliest = DEFAULT_HOUR_START * 60;
-    let latest = DEFAULT_HOUR_END * 60;
-    for (const h of clinicHours) {
-      if (!h.is_open) continue;
-      earliest = Math.min(earliest, timeToMinutes(h.opens_at));
-      latest = Math.max(latest, timeToMinutes(h.closes_at));
-    }
-    for (const a of appointments) {
-      const s = new Date(a.starts_at);
-      const e = new Date(a.ends_at);
-      earliest = Math.min(earliest, s.getHours() * 60 + s.getMinutes());
-      latest = Math.max(
-        latest,
-        e.getHours() * 60 + e.getMinutes() + (e.getMinutes() % 60 === 0 ? 0 : 0)
-      );
-    }
-    const start = Math.max(0, Math.floor(earliest / 60));
-    const end = Math.min(24, Math.ceil(latest / 60));
-    return { hourBoundsStart: start, hourBoundsEnd: Math.max(end, start + 1) };
-  }, [clinicHours, appointments]);
+  // A agenda exibe o dia completo (00:00–24:00), estilo Google Agenda: a
+  // grade rola internamente para alcançar madrugada e fim de noite, em vez
+  // de ficar travada no horário comercial.
+  const hourBoundsStart = 0;
+  const hourBoundsEnd = 24;
 
   const holidayByDate = useMemo(() => {
     const m = new Map<string, string>();
@@ -341,6 +323,21 @@ export function AgendaContent({
     const newStart = new Date(target.startsAt);
     const newEnd = new Date(newStart.getTime() + durationMs);
 
+    // Valida o expediente NO CLIENT antes de mover (o drag-and-drop nao passava
+    // pela checagem de horario comercial — so de conflito). Impede arrastar um
+    // card para fora do funcionamento, feriado, almoco ou atravessando a
+    // meia-noite. Em falha, mantem o card no lugar (sem update) e avisa.
+    const hoursIssue = checkBusinessHours({
+      startsAt: newStart,
+      endsAt: newEnd,
+      clinicHours,
+      holidays,
+    });
+    if (hoursIssue) {
+      setMoveError(BUSINESS_HOURS_MESSAGES[hoursIssue]);
+      return;
+    }
+
     if (newStart.getTime() === oldStart.getTime()) {
       const sameResource =
         resourceAxis === "dentist"
@@ -398,6 +395,19 @@ export function AgendaContent({
       router.refresh();
       return;
     }
+    // Reflete a remarcacao na Clinicorp (fire-and-forget; cancela o antigo e
+    // cria o novo). Falha aqui nunca afeta o reagendamento local.
+    if (companyId) {
+      void fetch("/api/appointments/sync-clinicorp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          appointmentId: appointment.id,
+          action: "reschedule",
+        }),
+      }).catch(() => {});
+    }
     router.refresh();
   }
 
@@ -448,13 +458,16 @@ export function AgendaContent({
   const agendaEnabled = clinicHours.length > 0;
 
   return (
-    // Antes `min-h-screen`; agora `min-h-full` para respeitar a área
-    // disponível abaixo da barra global do AppShell.
-    <div className="min-h-full">
-      <header className="border-b border-slate-200/80 bg-white px-1 py-0.5">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 lg:px-8">
-          <div>
-            <h1 className="text-lg font-bold text-slate-800 tracking-tight">Agenda</h1>
+    // Preso à altura do `<main>` do AppShell: o root usa `h-full` +
+    // `overflow-hidden` para a página não gerar scroll global. O cabeçalho
+    // fica fixo (`shrink-0`) e só a grade de horários rola internamente.
+    <div className="flex h-full flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200/80 bg-white">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-6 py-3 lg:px-8">
+          <div className="mr-1">
+            <h1 className="text-lg font-bold text-slate-800 tracking-tight leading-tight">
+              Agenda
+            </h1>
             <p className="text-xs text-slate-500 font-medium">
               {agendaEnabled
                 ? viewMode === "day"
@@ -465,79 +478,115 @@ export function AgendaContent({
                 : "Configure os horários de funcionamento para começar."}
             </p>
           </div>
+
           {agendaEnabled && (
-            <div className="flex items-center gap-2">
+            <>
+              <div
+                role="tablist"
+                aria-label="Modo de visualização"
+                className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
+              >
+                {(["day", "week", "month"] as ViewMode[]).map((v) => (
+                  <button
+                    key={v}
+                    role="tab"
+                    aria-selected={viewMode === v}
+                    onClick={() => navigate(dateObj, v)}
+                    className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-[0.96] cursor-pointer ${
+                      viewMode === v
+                        ? "bg-white text-blue-600 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {v === "day" ? "Dia" : v === "week" ? "Semana" : "Mês"}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => moveBy(-1)}
+                  aria-label="Anterior"
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={() => navigate(new Date(), viewMode)}
+                  className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.96] cursor-pointer"
+                >
+                  Hoje
+                </button>
+                <button
+                  onClick={() => moveBy(1)}
+                  aria-label="Próximo"
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
+                >
+                  ›
+                </button>
+              </div>
+
+              <input
+                type="date"
+                value={toDateInput(dateObj)}
+                onChange={(e) => navigate(parseDateInput(e.target.value), viewMode)}
+                title="Selecione uma data (navegue por mês no calendário)"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer"
+              />
+
+              {viewMode !== "month" && (
+                <div
+                  role="group"
+                  aria-label="Agrupar agenda por"
+                  className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
+                >
+                  {(
+                    [
+                      ["none", "Geral"],
+                      ["dentist", "Profissional"],
+                      ["room", "Sala"],
+                    ] as [ResourceAxis, string][]
+                  ).map(([axis, label]) => (
+                    <button
+                      key={axis}
+                      type="button"
+                      aria-pressed={resourceAxis === axis}
+                      onClick={() => navigate(dateObj, viewMode, axis)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-[0.96] cursor-pointer ${
+                        resourceAxis === axis
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <button
                 onClick={() => openCreateAt()}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 active:scale-[0.97] transition-all cursor-pointer"
+                className="ml-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 active:scale-[0.97] transition-all cursor-pointer"
               >
                 + Agendar
               </button>
-            </div>
+            </>
           )}
         </div>
       </header>
 
       {!agendaEnabled ? (
-        <main className="p-4 lg:p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
           <AgendaEmptyState domain={domain} />
         </main>
       ) : (
-      <main className="p-4 lg:p-6">
-        <div className="mb-5 flex flex-wrap items-center gap-3">
-          <div
-            role="tablist"
-            aria-label="Modo de visualização"
-            className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
-          >
-            {(["day", "week", "month"] as ViewMode[]).map((v) => (
-              <button
-                key={v}
-                role="tab"
-                aria-selected={viewMode === v}
-                onClick={() => navigate(dateObj, v)}
-                className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 active:scale-[0.96] cursor-pointer ${
-                  viewMode === v
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                {v === "day" ? "Dia" : v === "week" ? "Semana" : "Mês"}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => moveBy(-1)}
-              aria-label="Anterior"
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
-            >
-              ‹
-            </button>
-            <button
-              onClick={() => navigate(new Date(), viewMode)}
-              className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.96] cursor-pointer"
-            >
-              Hoje
-            </button>
-            <button
-              onClick={() => moveBy(1)}
-              aria-label="Próximo"
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50 transition-all active:scale-[0.95] cursor-pointer"
-            >
-              ›
-            </button>
-          </div>
-
-          <input
-            type="date"
-            value={toDateInput(dateObj)}
-            onChange={(e) => navigate(parseDateInput(e.target.value), viewMode)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer"
-          />
-        </div>
-
+      <main
+        className={`p-4 lg:p-6 ${
+          viewMode === "month"
+            ? "min-h-0 flex-1 overflow-y-auto"
+            : "flex min-h-0 flex-1 flex-col overflow-hidden"
+        }`}
+      >
         {viewMode === "month" ? (
           <AgendaMonth
             monthAnchor={monthAnchor}
@@ -632,6 +681,8 @@ export function AgendaContent({
           rooms={rooms}
           procedures={procedures}
           dentists={dentists}
+          clinicHours={clinicHours}
+          holidays={holidays}
           prefill={creatingPrefill}
           onClose={() => {
             setCreatingPrefill(null);
@@ -651,6 +702,8 @@ export function AgendaContent({
           rooms={rooms}
           procedures={procedures}
           dentists={dentists}
+          clinicHours={clinicHours}
+          holidays={holidays}
           appointment={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {

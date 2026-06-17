@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { WA_SYNC_SIGNAL_KEY } from "@/components/whatsapp/whatsapp-connect-loader";
 
 interface WhatsAppSyncIndicatorProps {
   domain: string;
@@ -9,17 +10,37 @@ interface WhatsAppSyncIndicatorProps {
 // Poll mais frequente enquanto sincroniza (feedback responsivo) e mais
 // espacado quando ocioso (so vigia o inicio de um novo sync) — leve para o
 // servidor mesmo com varios operadores logados.
-const POLL_ACTIVE_MS = 4_000;
-const POLL_IDLE_MS = 12_000;
+const POLL_ACTIVE_MS = 3_000;
+const POLL_IDLE_MS = 10_000;
 // Cadencia da animacao suave da barra entre os polls.
 const TICK_MS = 400;
 // Quanto tempo o estado "tudo pronto" fica visivel antes de sumir.
-const DONE_VISIBLE_MS = 2_600;
+const DONE_VISIBLE_MS = 4_000;
+// Se houve sinal de sync nos ultimos N ms, comecamos em modo ativo.
+const SIGNAL_FRESH_MS = 120_000;
 
 interface SyncStatusResponse {
   syncInProgress?: boolean;
   startedAt?: string | null;
   finishedAt?: string | null;
+}
+
+/** Le o sinal de sessionStorage gravado pelo WhatsAppConnectLoader. */
+function readSyncSignal(): number | null {
+  try {
+    const raw = sessionStorage.getItem(WA_SYNC_SIGNAL_KEY);
+    if (!raw) return null;
+    const ms = Number(raw);
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSyncSignal() {
+  try {
+    sessionStorage.removeItem(WA_SYNC_SIGNAL_KEY);
+  } catch { /* SSR / iframe sandbox */ }
 }
 
 export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
@@ -38,6 +59,12 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Verifica se ha sinal fresco do loader (sync prestes a comecar).
+    // Se sim, comeca em modo ativo para captar o syncInProgress rapidamente.
+    const signalMs = readSyncSignal();
+    const hasSignal =
+      signalMs !== null && Date.now() - signalMs < SIGNAL_FRESH_MS;
 
     // Anima a barra: curva que desacelera e nunca passa de 95% ate o sync
     // terminar de verdade. Monotonica (so sobe) durante um mesmo ciclo.
@@ -59,6 +86,7 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
       syncingRef.current = false;
       wasSyncingRef.current = false;
       startedAtMsRef.current = null;
+      clearSyncSignal();
       setPercent(100);
       setDone(true);
       setVisible(true);
@@ -75,6 +103,12 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
       }, DONE_VISIBLE_MS);
     }
 
+    // Quantas vezes seguidas o poll retornou syncInProgress=false enquanto
+    // temos um sinal ativo. O sync pode demorar a comecar (warmup de 15s),
+    // entao continuamos em modo ativo por algumas tentativas antes de desistir.
+    let idlePollsWithSignal = 0;
+    const MAX_IDLE_POLLS_WITH_SIGNAL = 8; // ~24s com poll de 3s — cobre o warmup
+
     async function poll() {
       let active = syncingRef.current;
       try {
@@ -86,6 +120,7 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
           const data = (await res.json()) as SyncStatusResponse;
           if (data.syncInProgress) {
             active = true;
+            idlePollsWithSignal = 0;
             const startMs = data.startedAt
               ? Date.parse(data.startedAt)
               : Date.now();
@@ -104,6 +139,17 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
             // Estava sincronizando e agora terminou.
             active = false;
             finishCycle();
+          } else if (hasSignal && !wasSyncingRef.current) {
+            // Ha sinal mas o sync nao apareceu no banco ainda (warmup).
+            // Mantemos poll ativo por um tempo.
+            idlePollsWithSignal++;
+            if (idlePollsWithSignal < MAX_IDLE_POLLS_WITH_SIGNAL) {
+              active = true; // mantem poll rapido
+            } else {
+              // Desiste: o sync provavelmente ja terminou antes de captarmos
+              // ou algo deu errado. Limpa o sinal.
+              clearSyncSignal();
+            }
           }
         }
       } catch {
@@ -118,7 +164,13 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
       }
     }
 
-    poll();
+    // Se ha sinal fresco, faz o primeiro poll imediatamente (sem delay).
+    // Senao, usa o delay idle normal para nao sobrecarregar no boot.
+    if (hasSignal) {
+      poll();
+    } else {
+      pollTimerRef.current = setTimeout(poll, POLL_IDLE_MS);
+    }
 
     return () => {
       cancelled = true;
@@ -132,9 +184,9 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-full border px-2.5 py-1 transition-opacity duration-300 ${
+      className={`flex items-center gap-2 rounded-full border px-2.5 py-1 transition-all duration-500 ${
         done
-          ? "border-emerald-200 bg-emerald-50"
+          ? "border-emerald-300 bg-emerald-50 shadow-sm shadow-emerald-100"
           : "border-emerald-100 bg-emerald-50/60"
       }`}
       title={
@@ -145,7 +197,8 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
     >
       {done ? (
         <>
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white animate-in zoom-in">
+          {/* Animacao de "concluido" — icone de check verde com pop-in. */}
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white animate-wa-done-pop">
             <svg
               viewBox="0 0 24 24"
               className="h-3 w-3"
@@ -160,8 +213,8 @@ export function WhatsAppSyncIndicator({ domain }: WhatsAppSyncIndicatorProps) {
               />
             </svg>
           </span>
-          <span className="hidden text-[11px] font-medium text-emerald-700 sm:inline">
-            WhatsApp pronto
+          <span className="hidden text-[11px] font-semibold text-emerald-700 sm:inline">
+            WhatsApp pronto!
           </span>
         </>
       ) : (

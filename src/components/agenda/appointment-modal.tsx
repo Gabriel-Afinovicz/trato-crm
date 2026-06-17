@@ -13,15 +13,19 @@ import { useCurrentCompany } from "@/hooks/use-current-company";
 import { confirm } from "@/components/ui/confirm";
 import { AvailabilityPanel } from "./availability-panel";
 import type {
-  AgendaVisibility,
   AppointmentDetailed,
   AvailabilityReason,
+  ClinicHoliday,
+  ClinicHours,
   Lead,
   ProcedureType,
   Room,
   User,
-  UserRoleTag,
 } from "@/lib/types/database";
+import {
+  checkBusinessHours,
+  BUSINESS_HOURS_MESSAGES,
+} from "@/lib/agenda/business-hours";
 
 const AVAILABILITY_MESSAGES: Record<AvailabilityReason, string> = {
   closed:
@@ -33,21 +37,6 @@ const AVAILABILITY_MESSAGES: Record<AvailabilityReason, string> = {
     "Este intervalo est\u00e1 bloqueado na agenda (profissional, sala ou bloqueio geral).",
   appointment:
     "J\u00e1 existe outro agendamento para este profissional ou sala neste intervalo.",
-};
-
-const VISIBILITY_LABELS: Record<AgendaVisibility, string> = {
-  assigned_dentist: "Apenas o profissional atribu\u00eddo",
-  role_tag: "Por fun\u00e7\u00e3o (tag)",
-  clinic_wide: "Toda a organiza\u00e7\u00e3o",
-};
-
-const VISIBILITY_HELP: Record<AgendaVisibility, string> = {
-  assigned_dentist:
-    "Visivel para o profissional escolhido (e admins). Outros profissionais n\u00e3o ver\u00e3o este card.",
-  role_tag:
-    "Visivel para todos os usu\u00e1rios que tenham a fun\u00e7\u00e3o selecionada (e admins).",
-  clinic_wide:
-    "Visivel para todos os usu\u00e1rios da organiza\u00e7\u00e3o (recep\u00e7\u00e3o e profissionais).",
 };
 
 const ROOM_PRESET_COLORS = [
@@ -68,6 +57,19 @@ function parseDecimal(input: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+// Configuracoes de agenda da clinica (companies.settings.agenda), servidas por
+// GET /api/clinic/agenda-settings. Definidas localmente (e nao importadas da
+// rota) para nao puxar codigo server-only para o bundle do client.
+interface AgendaSettings {
+  default_appointment_minutes: number;
+  allow_overlap: boolean;
+}
+
+const DEFAULT_AGENDA_SETTINGS: AgendaSettings = {
+  default_appointment_minutes: 30,
+  allow_overlap: false,
+};
+
 interface BasePrefill {
   startsAt?: string;
   endsAt?: string;
@@ -82,6 +84,13 @@ type AppointmentModalProps = {
   rooms: Room[];
   procedures: ProcedureType[];
   dentists: Pick<User, "id" | "name" | "is_dentist">[];
+  /**
+   * Horarios de funcionamento e feriados da clinica. Quando fornecidos, o modal
+   * valida o expediente NO CLIENT antes de salvar (impede agendar fora de hora,
+   * em feriado ou atravessando a meia-noite). Sem eles, recai sobre a RPC.
+   */
+  clinicHours?: ClinicHours[];
+  holidays?: Pick<ClinicHoliday, "date">[];
   onClose: () => void;
   onSaved?: () => void;
 } & (
@@ -108,8 +117,30 @@ function addMinutesIso(iso: string, minutes: number) {
   return d.toISOString();
 }
 
+type ClinicorpSyncPayload = {
+  companyId: string;
+  appointmentId?: string;
+  action: "create" | "reschedule" | "cancel";
+  clinicorpAppointmentId?: string | null;
+};
+
+/**
+ * Dispara (fire-and-forget) a sincronizacao do agendamento com a Clinicorp.
+ * A sincronizacao roda no servidor; uma falha nunca afeta o agendamento local
+ * (fica registrada em integration_logs).
+ */
+function triggerClinicorpSync(payload: ClinicorpSyncPayload) {
+  if (!payload.companyId) return;
+  void fetch("/api/appointments/sync-clinicorp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
 export function AppointmentModal(props: AppointmentModalProps) {
-  const { rooms, procedures, dentists, onClose, onSaved } = props;
+  const { rooms, procedures, dentists, clinicHours, holidays, onClose, onSaved } =
+    props;
   const { companyId } = useCurrentCompany();
   const isEdit = props.mode === "edit";
   const initial: BasePrefill =
@@ -124,23 +155,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
           notes: props.appointment.notes ?? "",
         }
       : props.prefill ?? {};
-
-  const initialVisibility: AgendaVisibility =
-    props.mode === "edit"
-      ? props.appointment.visibility ?? "assigned_dentist"
-      : initial.dentistId
-        ? "assigned_dentist"
-        : "clinic_wide";
-  const initialVisibilityTagId: string =
-    props.mode === "edit"
-      ? props.appointment.visibility_tag_id ?? ""
-      : "";
-
-  const [visibility, setVisibility] =
-    useState<AgendaVisibility>(initialVisibility);
-  const [visibilityTagId, setVisibilityTagId] =
-    useState<string>(initialVisibilityTagId);
-  const [tags, setTags] = useState<UserRoleTag[]>([]);
 
   const [startsAt, setStartsAt] = useState(toDatetimeLocal(initial.startsAt));
   const [duration, setDuration] = useState(
@@ -161,6 +175,11 @@ export function AppointmentModal(props: AppointmentModalProps) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agendaSettings, setAgendaSettings] = useState<AgendaSettings>(
+    DEFAULT_AGENDA_SETTINGS
+  );
+  const [confirmOverlap, setConfirmOverlap] = useState(false);
+  const settingsAppliedRef = useRef(false);
   const lockedLead = isEdit || Boolean(initial.leadId);
 
   const [proceduresList, setProceduresList] = useState<ProcedureType[]>(procedures);
@@ -201,25 +220,32 @@ export function AppointmentModal(props: AppointmentModalProps) {
   });
   const [creatingRoom, setCreatingRoom] = useState(false);
 
+  // Carrega as configuracoes de agenda da clinica. Aplica a duracao padrao
+  // apenas no create sem fonte explicita de duracao (sem prefill de fim e sem
+  // procedimento pre-selecionado) — edicao e prefills mantem a propria duracao.
   useEffect(() => {
     if (!companyId) return;
     let cancelled = false;
-    const supabase = createClient();
-    (async () => {
-      const { data } = await supabase
-        .from("user_role_tags")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("is_active", true)
-        .order("name");
-      if (!cancelled) {
-        setTags((data as unknown as UserRoleTag[]) ?? []);
-      }
-    })();
+    fetch(`/api/clinic/agenda-settings?companyId=${companyId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: { settings: AgendaSettings } | null) => {
+        if (cancelled || !p?.settings) return;
+        setAgendaSettings(p.settings);
+        if (
+          !isEdit &&
+          !initial.endsAt &&
+          !initial.procedureId &&
+          !settingsAppliedRef.current
+        ) {
+          settingsAppliedRef.current = true;
+          setDuration(p.settings.default_appointment_minutes);
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [companyId]);
+  }, [companyId, isEdit, initial.endsAt, initial.procedureId]);
 
   async function handleCreateProcedure() {
     if (!companyId) return;
@@ -397,19 +423,23 @@ export function AppointmentModal(props: AppointmentModalProps) {
       return;
     }
 
-    if (visibility === "assigned_dentist" && !dentistId) {
-      setError(
-        "Para visibilidade \u201cApenas o profissional atribu\u00eddo\u201d \u00e9 preciso selecionar um profissional, ou troque para \u201cToda a organiza\u00e7\u00e3o\u201d."
-      );
-      return;
-    }
-    if (visibility === "role_tag" && !visibilityTagId) {
-      setError("Selecione qual fun\u00e7\u00e3o (tag) ver\u00e1 este agendamento.");
-      return;
-    }
-
     const startsIso = new Date(startsAt).toISOString();
     const endsIso = addMinutesIso(startsIso, duration);
+
+    // Validacao de expediente NO CLIENT (independente da RPC): barra horario
+    // fora do funcionamento, feriado, almoco, intervalo invalido e agendamento
+    // que atravessa a meia-noite. So roda a parte de expediente quando o modal
+    // recebeu os horarios da clinica; caso contrario apenas intervalo/meia-noite.
+    const hoursIssue = checkBusinessHours({
+      startsAt: startsIso,
+      endsAt: endsIso,
+      clinicHours: clinicHours ?? [],
+      holidays,
+    });
+    if (hoursIssue) {
+      setError(BUSINESS_HOURS_MESSAGES[hoursIssue]);
+      return;
+    }
 
     setSaving(true);
     const supabase = createClient();
@@ -433,18 +463,35 @@ export function AppointmentModal(props: AppointmentModalProps) {
     }
     if (reasonData) {
       const reason = reasonData as AvailabilityReason;
-      setError(AVAILABILITY_MESSAGES[reason] ?? "Hor\u00e1rio indispon\u00edvel.");
-      setSaving(false);
-      return;
+      // Sobreposicao com outro agendamento pode ser confirmada manualmente
+      // quando a clinica habilita `allow_overlap`. Demais motivos (expediente,
+      // almoco, feriado, bloqueio) sempre bloqueiam.
+      const canOverride =
+        reason === "appointment" && agendaSettings.allow_overlap;
+      if (!canOverride) {
+        setError(AVAILABILITY_MESSAGES[reason] ?? "Hor\u00e1rio indispon\u00edvel.");
+        setSaving(false);
+        return;
+      }
+      if (!confirmOverlap) {
+        setError(
+          "J\u00e1 existe agendamento neste hor\u00e1rio para o mesmo profissional ou sala. Marque \u201cConfirmar mesmo assim\u201d abaixo para prosseguir."
+        );
+        setSaving(false);
+        return;
+      }
+      // canOverride && confirmOverlap: segue para gravar (sobreposicao aceita).
     }
 
-    const visibilityPayload = {
-      visibility,
-      visibility_tag_id:
-        visibility === "role_tag" ? visibilityTagId || null : null,
-    };
-
     if (isEdit) {
+      // Remarcacao na Clinicorp so quando muda horario ou profissional
+      // (mudancas so de notas/sala/visibilidade nao alteram o slot la).
+      const needsReschedule =
+        new Date(startsIso).getTime() !==
+          new Date(props.appointment.starts_at).getTime() ||
+        new Date(endsIso).getTime() !==
+          new Date(props.appointment.ends_at).getTime() ||
+        (dentistId || null) !== (props.appointment.dentist_id ?? null);
       const { error: updateErr } = await supabase
         .from("appointments")
         .update({
@@ -454,7 +501,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
           starts_at: startsIso,
           ends_at: endsIso,
           notes: notes.trim() || null,
-          ...visibilityPayload,
         })
         .eq("id", props.appointment.id);
       if (updateErr) {
@@ -462,22 +508,39 @@ export function AppointmentModal(props: AppointmentModalProps) {
         setSaving(false);
         return;
       }
+      if (needsReschedule && companyId) {
+        triggerClinicorpSync({
+          companyId,
+          appointmentId: props.appointment.id,
+          action: "reschedule",
+        });
+      }
     } else {
-      const { error: insertErr } = await supabase.from("appointments").insert({
-        company_id: companyId,
-        lead_id: leadId,
-        dentist_id: dentistId || null,
-        room_id: roomId || null,
-        procedure_type_id: procedureId || null,
-        starts_at: startsIso,
-        ends_at: endsIso,
-        notes: notes.trim() || null,
-        ...visibilityPayload,
-      });
+      const { data: inserted, error: insertErr } = await supabase
+        .from("appointments")
+        .insert({
+          company_id: companyId,
+          lead_id: leadId,
+          dentist_id: dentistId || null,
+          room_id: roomId || null,
+          procedure_type_id: procedureId || null,
+          starts_at: startsIso,
+          ends_at: endsIso,
+          notes: notes.trim() || null,
+        })
+        .select("id")
+        .single();
       if (insertErr) {
         setError(`Erro ao agendar: ${insertErr.message}`);
         setSaving(false);
         return;
+      }
+      if (inserted && companyId) {
+        triggerClinicorpSync({
+          companyId,
+          appointmentId: (inserted as { id: string }).id,
+          action: "create",
+        });
       }
     }
 
@@ -496,6 +559,15 @@ export function AppointmentModal(props: AppointmentModalProps) {
     if (!ok) return;
     setDeleting(true);
     const supabase = createClient();
+    // Cancela na Clinicorp ANTES de excluir local (passamos o id da Clinicorp,
+    // entao nao depende do registro local que sera removido).
+    if (props.appointment.clinicorp_appointment_id && companyId) {
+      triggerClinicorpSync({
+        companyId,
+        action: "cancel",
+        clinicorpAppointmentId: props.appointment.clinicorp_appointment_id,
+      });
+    }
     const { error: deleteErr } = await supabase
       .from("appointments")
       .delete()
@@ -527,7 +599,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
         <div className="flex items-start justify-between">
           <div>
             <h3 id={titleId} className="text-base font-bold text-slate-800 tracking-tight">
-              {isEdit ? "Editar consulta" : "Agendar consulta"}
+              {isEdit ? "Editar" : "Agendar"}
             </h3>
             <p className="text-xs text-slate-500 font-medium">
               O sistema bloqueia conflitos de profissional, sala e bloqueios
@@ -639,15 +711,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
               </label>
               <select
                 value={dentistId}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setDentistId(next);
-                  if (!next && visibility === "assigned_dentist") {
-                    setVisibility("clinic_wide");
-                  } else if (next && visibility === "clinic_wide" && !isEdit) {
-                    setVisibility("assigned_dentist");
-                  }
-                }}
+                onChange={(e) => setDentistId(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
               >
                 <option value="">Sem profissional</option>
@@ -830,65 +894,18 @@ export function AppointmentModal(props: AppointmentModalProps) {
             />
           </div>
 
-          <div className="rounded-xl border border-slate-200/80 bg-slate-50/40 p-4">
-            <label className="mb-2.5 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Visibilidade na agenda
+          {agendaSettings.allow_overlap && (
+            <label className="flex items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/50 px-3.5 py-2.5 text-xs font-medium text-amber-800">
+              <input
+                type="checkbox"
+                checked={confirmOverlap}
+                onChange={(e) => setConfirmOverlap(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500/20"
+              />
+              Permitir sobreposição com agendamento existente (mesmo
+              profissional ou sala).
             </label>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {(
-                [
-                  "assigned_dentist",
-                  "role_tag",
-                  "clinic_wide",
-                ] as AgendaVisibility[]
-              ).map((v) => {
-                const disabled = v === "assigned_dentist" && !dentistId;
-                const active = visibility === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setVisibility(v)}
-                    className={`rounded-lg border px-3.5 py-2 text-left text-xs font-semibold transition-all duration-200 cursor-pointer ${
-                      active
-                        ? "border-blue-300 bg-blue-50/40 text-blue-700 shadow-sm ring-4 ring-blue-500/5"
-                        : "border-slate-200/90 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900 hover:bg-slate-50/50"
-                    } disabled:cursor-not-allowed disabled:opacity-40`}
-                  >
-                    <span className="block font-bold">
-                      {VISIBILITY_LABELS[v]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] font-medium text-slate-400">
-              {VISIBILITY_HELP[visibility]}
-            </p>
-            {visibility === "role_tag" && (
-              <div className="mt-2.5">
-                <select
-                  value={visibilityTagId}
-                  onChange={(e) => setVisibilityTagId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
-                >
-                  <option value="">Selecione uma função...</option>
-                  {tags.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                      {t.marks_as_dentist ? " · profissional" : ""}
-                    </option>
-                  ))}
-                </select>
-                {tags.length === 0 && (
-                  <p className="mt-1 text-[11px] text-slate-400 font-medium">
-                    Nenhuma função cadastrada. Crie em Configurações &rsaquo; Equipe &rsaquo; Funções.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+          )}
 
           {companyId && (
             <details className="group rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">

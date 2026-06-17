@@ -15,8 +15,16 @@
 
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { clinicorp } from "@/lib/clinicorp/client";
+import {
+  clinicorp,
+  extractClinicorpAppointmentId,
+  extractClinicorpPatientId,
+} from "@/lib/clinicorp/client";
 import type { ClinicorpCredentials } from "@/lib/clinicorp/types";
+import {
+  buildClinicorpAppointmentTimes,
+  DEFAULT_CLINIC_TIMEZONE,
+} from "@/lib/clinicorp/datetime";
 import {
   friendlyClinicorpError,
   type ClinicorpAction,
@@ -28,9 +36,15 @@ import {
 
 const PROVIDER = "clinicorp";
 
-interface ResolvedConfig {
+export interface ResolvedClinicorpConfig {
   creds: ClinicorpCredentials;
   integrationId: string;
+  /** Clinic_BusinessId escolhido para agendamentos (config.clinic_business_id). */
+  clinicBusinessId: string | null;
+  /** Mapa dentista do CRM (userId) -> Dentist_PersonId da Clinicorp. */
+  dentistMap: Record<string, string>;
+  /** Profissional padrao usado quando o agendamento nao tem dentista mapeado. */
+  defaultDentistPersonId: string | null;
 }
 
 interface LeadForSync {
@@ -56,13 +70,13 @@ class SkipIntegration extends Error {
  * Carrega a integracao ativa da empresa. Retorna null quando nao existe ou
  * esta desabilitada — nesse caso simplesmente nao fazemos nada.
  */
-async function resolveConfig(
+export async function resolveClinicorpConfig(
   companyId: string
-): Promise<ResolvedConfig | null> {
+): Promise<ResolvedClinicorpConfig | null> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("company_integrations")
-    .select("id, credentials, status")
+    .select("id, credentials, config, status")
     .eq("company_id", companyId)
     .eq("provider", PROVIDER)
     .maybeSingle();
@@ -78,6 +92,25 @@ async function resolveConfig(
     return null;
   }
 
+  const cfg = (data.config ?? {}) as Record<string, unknown>;
+  const clinicBusinessId =
+    typeof cfg.clinic_business_id === "string" && cfg.clinic_business_id.trim()
+      ? cfg.clinic_business_id
+      : null;
+  const dentistMapRaw =
+    cfg.dentist_map && typeof cfg.dentist_map === "object"
+      ? (cfg.dentist_map as Record<string, unknown>)
+      : {};
+  const dentistMap: Record<string, string> = {};
+  for (const [k, v] of Object.entries(dentistMapRaw)) {
+    if (typeof v === "string" && v.trim()) dentistMap[k] = v;
+  }
+  const defaultDentistPersonId =
+    typeof cfg.default_dentist_person_id === "string" &&
+    cfg.default_dentist_person_id.trim()
+      ? cfg.default_dentist_person_id
+      : null;
+
   return {
     creds: {
       username: creds.username,
@@ -85,6 +118,9 @@ async function resolveConfig(
       subscriber_id: creds.subscriber_id,
     },
     integrationId: data.id as string,
+    clinicBusinessId,
+    dentistMap,
+    defaultDentistPersonId,
   };
 }
 
@@ -184,7 +220,7 @@ export function syncLeadCreated(companyId: string, leadId: string): void {
       leadId,
     },
     async (): Promise<ActionResult> => {
-      const config = await resolveConfig(companyId);
+      const config = await resolveClinicorpConfig(companyId);
       if (!config) throw new SkipIntegration("Integração Clinicorp inativa ou não configurada.");
 
       const lead = await loadLead(companyId, leadId);
@@ -235,7 +271,7 @@ export function syncLeadWon(companyId: string, leadId: string): void {
       leadId,
     },
     async (): Promise<ActionResult> => {
-      const config = await resolveConfig(companyId);
+      const config = await resolveClinicorpConfig(companyId);
       if (!config) throw new SkipIntegration("Integração Clinicorp inativa ou não configurada.");
 
       const lead = await loadLead(companyId, leadId);
@@ -263,5 +299,255 @@ export function syncLeadWon(companyId: string, leadId: string): void {
       }
     },
     runnerOptions("create_patient")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agendamento CRM -> agenda Clinicorp (Parte C)
+// ---------------------------------------------------------------------------
+
+interface AppointmentForSync {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  dentist_id: string | null;
+  clinicorp_appointment_id: string | null;
+  lead_name: string;
+  lead_phone: string | null;
+}
+
+async function loadAppointmentForSync(
+  companyId: string,
+  appointmentId: string
+): Promise<{ appt: AppointmentForSync; timezone: string } | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("appointments")
+    .select(
+      "id, starts_at, ends_at, dentist_id, clinicorp_appointment_id, leads(name, phone)"
+    )
+    .eq("id", appointmentId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) console.error("[clinicorp-service] erro ao carregar agendamento", error);
+    return null;
+  }
+
+  const leadRaw = (data as { leads?: unknown }).leads;
+  const lead = (Array.isArray(leadRaw) ? leadRaw[0] : leadRaw) as
+    | { name?: string; phone?: string | null }
+    | null;
+
+  const { data: companyRow } = await admin
+    .from("companies")
+    .select("timezone")
+    .eq("id", companyId)
+    .maybeSingle();
+  const timezone =
+    (companyRow?.timezone as string | null | undefined) || DEFAULT_CLINIC_TIMEZONE;
+
+  return {
+    appt: {
+      id: data.id as string,
+      starts_at: data.starts_at as string,
+      ends_at: data.ends_at as string,
+      dentist_id: (data.dentist_id as string | null) ?? null,
+      clinicorp_appointment_id:
+        (data.clinicorp_appointment_id as string | null) ?? null,
+      lead_name: lead?.name ?? "Paciente",
+      lead_phone: lead?.phone ?? null,
+    },
+    timezone,
+  };
+}
+
+async function saveClinicorpAppointmentId(
+  appointmentId: string,
+  clinicorpId: string | null
+): Promise<void> {
+  const admin = createAdminClient();
+  await admin
+    .from("appointments")
+    .update({ clinicorp_appointment_id: clinicorpId })
+    .eq("id", appointmentId);
+}
+
+/**
+ * Cria o agendamento na Clinicorp resolvendo profissional (mapeado ou padrao)
+ * e paciente (por telefone/nome, para evitar a dedupe por nome). Retorna o id
+ * do agendamento criado. Lanca SkipIntegration quando falta configuracao.
+ */
+async function createOnClinicorp(
+  config: ResolvedClinicorpConfig,
+  appt: AppointmentForSync,
+  timezone: string
+): Promise<string> {
+  if (!config.clinicBusinessId) {
+    throw new SkipIntegration("Clínica (Clinic_BusinessId) não configurada.");
+  }
+  const dentistPersonId =
+    (appt.dentist_id ? config.dentistMap[appt.dentist_id] : null) ??
+    config.defaultDentistPersonId;
+  if (!dentistPersonId) {
+    throw new SkipIntegration(
+      "Agendamento sem profissional mapeado e sem profissional padrão configurado em Configurações > Clinicorp."
+    );
+  }
+
+  const times = buildClinicorpAppointmentTimes(
+    appt.starts_at,
+    appt.ends_at,
+    timezone
+  );
+  const phoneDigits = (appt.lead_phone ?? "").replace(/\D/g, "");
+
+  // Resolve o paciente por telefone para enviar Patient_PersonId e evitar a
+  // dedupe por nome (que impede a criacao quando o nome ja existe).
+  let patientPersonId: string | null = null;
+  if (phoneDigits) {
+    try {
+      const { data } = await clinicorp.getPatient(config.creds, {
+        phone: phoneDigits,
+      });
+      patientPersonId = extractClinicorpPatientId(data);
+    } catch {
+      // best-effort
+    }
+  }
+
+  const base = {
+    Clinic_BusinessId: config.clinicBusinessId,
+    Dentist_PersonId: dentistPersonId,
+    PatientName: appt.lead_name,
+    MobilePhone: phoneDigits,
+    date: times.date,
+    fromTime: times.fromTime,
+    toTime: times.toTime,
+    Notes: "Agendado pelo CRM.",
+  };
+
+  const firstBody = patientPersonId
+    ? { ...base, Patient_PersonId: patientPersonId }
+    : base;
+  let { data } = await clinicorp.createAppointmentByApi(config.creds, firstBody);
+  let id = extractClinicorpAppointmentId(data);
+
+  // Dedupe por nome: resolve o PatientId por nome e tenta de novo com
+  // Patient_PersonId (autoritativo).
+  const dup =
+    (data?.[0] as Record<string, unknown> | undefined)
+      ?.PatientNameAlreadyExists === true;
+  if (!id && dup && !patientPersonId) {
+    try {
+      const { data: pd } = await clinicorp.getPatient(config.creds, {
+        name: appt.lead_name,
+      });
+      patientPersonId = extractClinicorpPatientId(pd);
+    } catch {
+      // best-effort
+    }
+    if (patientPersonId) {
+      const retry = await clinicorp.createAppointmentByApi(config.creds, {
+        ...base,
+        Patient_PersonId: patientPersonId,
+      });
+      data = retry.data;
+      id = extractClinicorpAppointmentId(data);
+    }
+  }
+
+  if (!id) {
+    throw new Error(
+      "A Clinicorp aceitou a requisição mas não retornou o id do agendamento (possível paciente duplicado sem PatientId resolvido)."
+    );
+  }
+  return id;
+}
+
+/** Cria o agendamento na Clinicorp e guarda o id local. Fire-and-forget. */
+export function syncAppointmentCreated(
+  companyId: string,
+  appointmentId: string
+): void {
+  runIntegrationInBackground(
+    { companyId, provider: PROVIDER, action: "create_appointment" },
+    async (): Promise<ActionResult> => {
+      const config = await resolveClinicorpConfig(companyId);
+      if (!config) throw new SkipIntegration("Integração Clinicorp inativa.");
+      if (!config.clinicBusinessId) {
+        throw new SkipIntegration("Agenda Clinicorp não configurada (clínica).");
+      }
+      const loaded = await loadAppointmentForSync(companyId, appointmentId);
+      if (!loaded) throw new SkipIntegration("Agendamento não encontrado.");
+      if (loaded.appt.clinicorp_appointment_id) {
+        return { response: { skipped: "already_synced" } };
+      }
+      const id = await createOnClinicorp(config, loaded.appt, loaded.timezone);
+      await saveClinicorpAppointmentId(appointmentId, id);
+      return { response: { clinicorp_appointment_id: id } };
+    },
+    runnerOptions("create_appointment")
+  );
+}
+
+/** Remarcacao = cancelar o agendamento antigo na Clinicorp e criar um novo. */
+export function syncAppointmentRescheduled(
+  companyId: string,
+  appointmentId: string
+): void {
+  runIntegrationInBackground(
+    { companyId, provider: PROVIDER, action: "create_appointment" },
+    async (): Promise<ActionResult> => {
+      const config = await resolveClinicorpConfig(companyId);
+      if (!config) throw new SkipIntegration("Integração Clinicorp inativa.");
+      if (!config.clinicBusinessId) {
+        throw new SkipIntegration("Agenda Clinicorp não configurada (clínica).");
+      }
+      const loaded = await loadAppointmentForSync(companyId, appointmentId);
+      if (!loaded) throw new SkipIntegration("Agendamento não encontrado.");
+
+      if (loaded.appt.clinicorp_appointment_id) {
+        try {
+          await clinicorp.cancelAppointment(
+            config.creds,
+            loaded.appt.clinicorp_appointment_id
+          );
+        } catch (err) {
+          console.error(
+            "[clinicorp-service] falha ao cancelar agendamento antigo na remarcação",
+            err
+          );
+        }
+      }
+      const id = await createOnClinicorp(config, loaded.appt, loaded.timezone);
+      await saveClinicorpAppointmentId(appointmentId, id);
+      return { response: { rescheduled_to: id } };
+    },
+    runnerOptions("create_appointment")
+  );
+}
+
+/**
+ * Cancela na Clinicorp. Recebe o id da Clinicorp diretamente (o registro local
+ * pode ja ter sido excluido). Fire-and-forget.
+ */
+export function syncAppointmentCancelled(
+  companyId: string,
+  clinicorpAppointmentId: string
+): void {
+  runIntegrationInBackground(
+    { companyId, provider: PROVIDER, action: "cancel_appointment" },
+    async (): Promise<ActionResult> => {
+      const config = await resolveClinicorpConfig(companyId);
+      if (!config) throw new SkipIntegration("Integração Clinicorp inativa.");
+      const { data, httpStatus } = await clinicorp.cancelAppointment(
+        config.creds,
+        clinicorpAppointmentId
+      );
+      return { response: data as Record<string, unknown>, httpStatus };
+    },
+    runnerOptions("cancel_appointment")
   );
 }

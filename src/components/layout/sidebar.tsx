@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "@/components/layout/session-provider";
 
 interface SidebarProps {
   domain: string;
@@ -116,6 +117,7 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { companyId } = useSession();
   const navItems = showSettings
     ? [...baseNavItems, settingsNavItem]
     : baseNavItems;
@@ -131,15 +133,19 @@ export function Sidebar({
   // 60s para ver o badge surgir — fluxo confuso.
   const [newLeadsCount, setNewLeadsCount] = useState<number>(0);
   const refetchNewLeads = useCallback(async () => {
+    if (!companyId) return;
     try {
-      const res = await fetch("/api/leads/new-count", { cache: "no-store" });
+      const res = await fetch(
+        `/api/leads/new-count?companyId=${encodeURIComponent(companyId)}`,
+        { cache: "no-store" }
+      );
       if (!res.ok) return;
       const data = (await res.json()) as { count?: number };
       if (typeof data.count === "number") setNewLeadsCount(data.count);
     } catch {
       /* silencioso — badge apenas desaparece */
     }
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     void refetchNewLeads();

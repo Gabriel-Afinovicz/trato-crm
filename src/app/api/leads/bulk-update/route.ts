@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { resolveCompanyAccess } from "@/lib/api/company-context";
+import { friendlyDbError } from "@/lib/api/friendly-db-error";
 import { getAuthSession } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
-import { friendlyDbError } from "@/lib/api/friendly-db-error";
 
 /**
  * Atualizacao em lote de leads — usado pela "barra de acoes" da tela
@@ -17,17 +18,17 @@ import { friendlyDbError } from "@/lib/api/friendly-db-error";
  * atualizadas (o cliente exibe toast informativo).
  */
 interface BulkUpdatePayload {
+  companyId?: string;
   leadIds: string[];
   assigned_to?: string | null;
   sector_id?: string | null;
 }
 
 export async function POST(req: NextRequest) {
-  const { user, profile } = await getAuthSession();
-  if (!user || !profile?.company_id) {
+  const { user, profile, role } = await getAuthSession();
+  if (!user || !profile) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
-  const companyId = profile.company_id;
 
   let body: BulkUpdatePayload;
   try {
@@ -37,6 +38,11 @@ export async function POST(req: NextRequest) {
       { error: "Body inválido — esperado JSON." },
       { status: 400 }
     );
+  }
+
+  const access = resolveCompanyAccess(profile, role, body.companyId);
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
   const ids = Array.isArray(body.leadIds) ? body.leadIds.filter(Boolean) : [];
@@ -65,7 +71,7 @@ export async function POST(req: NextRequest) {
     .from("leads")
     .update(update)
     .in("id", ids)
-    .eq("company_id", companyId)
+    .eq("company_id", access.companyId)
     .select("id");
 
   if (error) {

@@ -1,18 +1,25 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { resolveCompanyAccess } from "@/lib/api/company-context";
 import { getAuthSession } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
 import { getSectorVisibility } from "@/lib/supabase/sector-visibility";
 
 /**
- * Quantidade de leads novos criados nas ultimas 24h da company do usuario.
+ * Quantidade de leads novos criados nas ultimas 24h da company do contexto.
  *
  * Consumido pela `Sidebar` para mostrar o badge no item "Leads",
  * sinalizando ao operador que ha entradas recentes sem precisar abrir
  * a tela. Retorna 0 se o usuario nao estiver autenticado ou sem company.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { user, profile, role } = await getAuthSession();
-  if (!user || !profile?.company_id) {
+  if (!user || !profile) {
+    return NextResponse.json({ count: 0 });
+  }
+
+  const companyId = new URL(req.url).searchParams.get("companyId");
+  const access = resolveCompanyAccess(profile, role, companyId);
+  if (!access.ok) {
     return NextResponse.json({ count: 0 });
   }
 
@@ -23,7 +30,7 @@ export async function GET() {
   let query = supabase
     .from("leads")
     .select("id", { head: true, count: "exact" })
-    .eq("company_id", profile.company_id)
+    .eq("company_id", access.companyId)
     .gte("created_at", since);
   if (visibility.allowedSectorIds && visibility.allowedSectorIds.length > 0) {
     query = query.in("sector_id", visibility.allowedSectorIds);

@@ -4,9 +4,7 @@ import {
   getAgendaResources,
   getAgendaSchedule,
   getMonthAppointments,
-  type AgendaViewer,
 } from "@/lib/supabase/agenda-data";
-import { createClient } from "@/lib/supabase/server";
 import { AgendaContent } from "./agenda-content";
 
 interface AgendaPageProps {
@@ -103,21 +101,6 @@ export default async function AgendaPage({
   if (!session.user) redirect(`/${domain}`);
   if (!company) redirect(`/${domain}/dashboard`);
 
-  let viewer: AgendaViewer | null = null;
-  if (session.profile && session.role) {
-    const supabase = await createClient();
-    const { data: tagRows } = await supabase
-      .from("user_role_tag_assignments")
-      .select("tag_id")
-      .eq("user_id", session.profile.id);
-    viewer = {
-      userId: session.profile.id,
-      role: session.role as AgendaViewer["role"],
-      tagIds:
-        ((tagRows as { tag_id: string }[] | null) ?? []).map((r) => r.tag_id),
-    };
-  }
-
   const viewMode: ViewMode =
     view === "week" ? "week" : view === "month" ? "month" : "day";
   const resourceAxis: ResourceAxis =
@@ -170,8 +153,7 @@ export default async function AgendaPage({
   const schedule = await getAgendaSchedule(
     company.id,
     rangeStart.toISOString(),
-    rangeEnd.toISOString(),
-    viewer
+    rangeEnd.toISOString()
   );
 
   return (

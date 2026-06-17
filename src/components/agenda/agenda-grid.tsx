@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -21,6 +21,9 @@ import type {
 const PX_PER_MIN = 1.0;
 const SLOT_MINUTES = 30;
 const DRAG_SNAP_MINUTES = 15;
+// Hora em que a grade abre posicionada (estilo Google Agenda) — evita
+// iniciar a visualização na madrugada mesmo com o dia inteiro disponível.
+const INITIAL_SCROLL_HOUR = 7;
 
 export interface GridDay {
   date: Date;
@@ -229,9 +232,33 @@ export function AgendaGrid({
   const totalHeight = (hourBoundsEnd - hourBoundsStart) * 60 * PX_PER_MIN;
   const hasResourceAxis = resourceAxis !== "none" && resources.length > 0;
 
+  // Container rolável da grade. Como o dia agora vai de 00:00 a 24:00, a grade
+  // rola verticalmente por dentro (cabeçalho de dias fixo) em vez de esticar a
+  // página inteira.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overDropId, setOverDropId] = useState<string | null>(null);
   const [dragOffsetMin, setDragOffsetMin] = useState(0);
+
+  // Linha do horario atual ("agora"): atualiza a cada minuto para acompanhar o
+  // tempo sem recarregar a pagina. Inicializacao lazy evita set-state em render.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Abre a grade já posicionada no começo do expediente (em vez da meia-noite),
+  // mantendo madrugada e fim de noite acessíveis pela rolagem.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = Math.max(
+      0,
+      (INITIAL_SCROLL_HOUR - hourBoundsStart) * 60 * PX_PER_MIN
+    );
+  }, [hourBoundsStart]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -332,7 +359,10 @@ export function AgendaGrid({
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-auto rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.02)]"
+    >
       <DndContext
         sensors={sensors}
         onDragStart={handleDragStart}
@@ -350,13 +380,13 @@ export function AgendaGrid({
             gridTemplateColumns: `60px repeat(${columns.length}, minmax(180px, 1fr))`,
           }}
         >
-          <div className="border-b border-r border-slate-200 bg-slate-50/50 p-2" />
+          <div className="sticky top-0 z-40 border-b border-r border-slate-200 bg-slate-50 p-2" />
           {columns.map((col, idx) => {
             const holiday = isHoliday(col.day);
             return (
               <div
                 key={`${col.day.toISOString()}-${col.resourceId ?? idx}`}
-                className="border-b border-r border-slate-200 bg-slate-50/50 px-3.5 py-3 text-center transition-colors duration-200"
+                className="sticky top-0 z-30 border-b border-r border-slate-200 bg-slate-50 px-3.5 py-3 text-center transition-colors duration-200"
               >
                 <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   {fmtDay(col.day)}
@@ -400,6 +430,12 @@ export function AgendaGrid({
               (d) => d.date.toDateString() === col.day.toDateString()
             )?.hours;
             const dayMinutes = (hourBoundsEnd - hourBoundsStart) * 60;
+
+            const isToday = col.day.toDateString() === now.toDateString();
+            const nowTopMin =
+              now.getHours() * 60 + now.getMinutes() - hourBoundsStart * 60;
+            const showNowLine =
+              isToday && nowTopMin >= 0 && nowTopMin <= dayMinutes;
 
             const closedBands: { topMin: number; durMin: number }[] = [];
             if (holiday || !hours || !hours.is_open) {
@@ -457,6 +493,8 @@ export function AgendaGrid({
                   if (activeDragId) return;
                   if (holiday) return;
                   if (e.target !== e.currentTarget) return;
+                  // Dia fechado: nao abre o modal (nao ha horario valido).
+                  if (!hours || !hours.is_open) return;
                   const rect = (
                     e.currentTarget as HTMLElement
                   ).getBoundingClientRect();
@@ -471,7 +509,27 @@ export function AgendaGrid({
                     0,
                     0
                   );
-                  onCreateAt(rounded, col.resourceId);
+                  // Encaixa o clique no expediente: antes da abertura -> abre na
+                  // abertura; dentro do almoco -> pula para o fim do almoco; a
+                  // partir do fechamento -> ignora (sem horario valido no dia).
+                  const opens = timeToMinutes(hours.opens_at);
+                  const closes = timeToMinutes(hours.closes_at);
+                  let clickMin = rounded.getHours() * 60 + rounded.getMinutes();
+                  if (clickMin < opens) clickMin = opens;
+                  if (hours.lunch_start && hours.lunch_end) {
+                    const ls = timeToMinutes(hours.lunch_start);
+                    const le = timeToMinutes(hours.lunch_end);
+                    if (clickMin >= ls && clickMin < le) clickMin = le;
+                  }
+                  if (clickMin >= closes) return;
+                  const snapped = new Date(col.day);
+                  snapped.setHours(
+                    Math.floor(clickMin / 60),
+                    clickMin % 60,
+                    0,
+                    0
+                  );
+                  onCreateAt(snapped, col.resourceId);
                 }}
               >
                 {Array.from({
@@ -566,6 +624,17 @@ export function AgendaGrid({
                       height: ghostInfo.durMin * PX_PER_MIN - 2,
                     }}
                   />
+                )}
+
+                {showNowLine && (
+                  <div
+                    className="pointer-events-none absolute inset-x-0 z-20"
+                    style={{ top: nowTopMin * PX_PER_MIN }}
+                    aria-hidden
+                  >
+                    <div className="absolute -left-0.5 -top-1 h-2 w-2 rounded-full bg-rose-500 shadow-sm" />
+                    <div className="border-t border-rose-400/90" />
+                  </div>
                 )}
 
                 {apps.map((a) => {
