@@ -52,6 +52,37 @@ export interface ClinicorpProfessional {
 }
 
 /**
+ * Cadeira/sala retornada por GET /business/list_chairs. O `id` e usado no
+ * agendamento quando a clinica agenda por cadeira em vez de profissional. O
+ * nome do campo no create e descoberto/validado em conta real.
+ */
+export interface ClinicorpChair {
+  id: string;
+  name: string;
+}
+
+/**
+ * Procedimento retornado por GET /procedures/list. O `id` e mapeado a partir
+ * do Servico do CRM para enviar no agendamento (campo `Procedures`).
+ */
+export interface ClinicorpProcedure {
+  id: string;
+  name: string;
+}
+
+/**
+ * Categoria de Agendamento ("Marcador") retornada por
+ * GET /appointment/list_categories. Na criacao do agendamento ela e enviada
+ * por `CategoryDescription` + `CategoryColor` (a API casa pela descricao+cor
+ * de uma categoria ja cadastrada, nao por id).
+ */
+export interface ClinicorpCategory {
+  id: string;
+  description: string;
+  color: string;
+}
+
+/**
  * Body do POST /appointment/create_appointment_by_api.
  *
  * Observacao: a semantica exata de alguns campos (formato de `date`,

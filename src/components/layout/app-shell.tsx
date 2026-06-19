@@ -11,6 +11,8 @@ import { ConfirmDialogHost } from "@/components/ui/confirm-dialog";
 import { NewLeadNotifier } from "./new-lead-notifier";
 import { WhatsAppSyncIndicator } from "./whatsapp-sync-indicator";
 import { WhatsAppDisconnectedBanner } from "./whatsapp-disconnected-banner";
+import { TourHost } from "@/components/onboarding/tour-host";
+import { SessionTimeoutGuard } from "./session-timeout-guard";
 
 interface AppShellProps {
   domain: string;
@@ -103,6 +105,10 @@ export function AppShell({ domain, showSettings, children }: AppShellProps) {
       <ConfirmDialogHost />
       {/* Subscriber Realtime de novos leads (toast + badge global). */}
       <NewLeadNotifier domain={domain} />
+      {/* Tour guiado de onboarding (welcome + coach marks na 1a visita). */}
+      <TourHost domain={domain} />
+      {/* Exige novo login quando a aba/navegador foi fechado e reaberto. */}
+      <SessionTimeoutGuard domain={domain} />
     </div>
   );
 }

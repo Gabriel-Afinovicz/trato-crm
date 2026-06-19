@@ -405,6 +405,7 @@ export function LeadTable({ domain }: LeadTableProps) {
 
   return (
     <div className="space-y-4">
+      <div data-tour="leads-categories">
       <LeadsMinidash
         cohort={minidash}
         selected={filters.state.categories}
@@ -425,6 +426,7 @@ export function LeadTable({ domain }: LeadTableProps) {
           </button>
         }
       />
+      </div>
 
       {showRangePicker && (
         <DateRangePicker

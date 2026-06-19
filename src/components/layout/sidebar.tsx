@@ -287,7 +287,7 @@ export function Sidebar({
         )}
       </div>
  
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
+      <nav data-tour="sidebar-nav" className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {navItems.map((item) => {
           const fullHref = `/${domain}${item.href}`;
           const isItemActive =
@@ -453,6 +453,7 @@ export function Sidebar({
           target="_blank"
           rel="noopener noreferrer"
           title="Ajuda e tutorial"
+          data-tour="nav-help"
           className={`flex items-center gap-3 rounded-lg text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-200/40 hover:text-blue-600 ${
             collapsed ? "justify-center p-2" : "px-3 py-2 hover:translate-x-0.5"
           }`}

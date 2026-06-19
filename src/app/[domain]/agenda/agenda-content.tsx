@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types/database";
 import { AppointmentModal } from "@/components/agenda/appointment-modal";
 import { AppointmentActions } from "@/components/agenda/appointment-actions";
+import { getClinicorpSyncState } from "@/lib/clinicorp/sync-badge";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import {
   AgendaGrid,
@@ -48,6 +49,7 @@ interface AgendaContentProps {
   dentists: Pick<User, "id" | "name" | "is_dentist">[];
   clinicHours: ClinicHours[];
   templates: MessageTemplate[];
+  clinicorpEnabled: boolean;
 }
 
 function fmtDay(d: Date) {
@@ -102,10 +104,40 @@ export function AgendaContent({
   dentists,
   clinicHours,
   templates,
+  clinicorpEnabled,
 }: AgendaContentProps) {
   const router = useRouter();
   const params = useSearchParams();
   const { companyId } = useCurrentCompany();
+
+  // Enquanto houver agendamento "sincronizando" com a Clinicorp, atualiza a
+  // agenda periodicamente para o selo amarelo virar verde (ou vermelho)
+  // sozinho, sem o usuario precisar recarregar. Para apos ~3 min.
+  const syncPollStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!clinicorpEnabled) return;
+    const anySyncing = appointments.some(
+      (a) => getClinicorpSyncState(a, true) === "syncing"
+    );
+    if (!anySyncing) {
+      syncPollStartRef.current = null;
+      return;
+    }
+    if (syncPollStartRef.current === null) {
+      syncPollStartRef.current = Date.now();
+    }
+    const id = window.setInterval(() => {
+      if (
+        syncPollStartRef.current &&
+        Date.now() - syncPollStartRef.current > 180_000
+      ) {
+        window.clearInterval(id);
+        return;
+      }
+      router.refresh();
+    }, 6000);
+    return () => window.clearInterval(id);
+  }, [appointments, clinicorpEnabled, router]);
 
   type Prefill = {
     startsAt?: string;
@@ -483,6 +515,7 @@ export function AgendaContent({
             <>
               <div
                 role="tablist"
+                data-tour="agenda-views"
                 aria-label="Modo de visualização"
                 className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
               >
@@ -537,6 +570,7 @@ export function AgendaContent({
               {viewMode !== "month" && (
                 <div
                   role="group"
+                  data-tour="agenda-grouping"
                   aria-label="Agrupar agenda por"
                   className="inline-flex rounded-lg border border-slate-200 bg-slate-100/60 p-0.5 shadow-inner"
                 >
@@ -566,6 +600,7 @@ export function AgendaContent({
 
               <button
                 onClick={() => openCreateAt()}
+                data-tour="agenda-new"
                 className="ml-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 active:scale-[0.97] transition-all cursor-pointer"
               >
                 + Agendar
@@ -642,6 +677,7 @@ export function AgendaContent({
             <AgendaGrid
               days={gridDays}
               appointments={visibleAppointments}
+              clinicorpEnabled={clinicorpEnabled}
               blocks={blocks}
               hourBoundsStart={hourBoundsStart}
               hourBoundsEnd={hourBoundsEnd}
@@ -718,6 +754,7 @@ export function AgendaContent({
           domain={domain}
           appointment={acting}
           templates={templates}
+          clinicorpEnabled={clinicorpEnabled}
           onClose={() => setActing(null)}
           onChanged={() => {
             setActing(null);

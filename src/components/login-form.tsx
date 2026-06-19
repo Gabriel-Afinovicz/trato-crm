@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { markSessionAlive } from "@/lib/auth/session-heartbeat";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ComingSoonOverlay } from "@/components/ui/coming-soon";
@@ -110,6 +111,10 @@ export function LoginForm({ domain }: LoginFormProps) {
         }
         throw new Error(`Erro no login: ${signInError.message}`);
       }
+
+      // Marca a aba como "viva" para o guard de sessao nao confundir este
+      // login novo com uma sessao restaurada (evita logout imediato).
+      markSessionAlive();
 
       // Tela inicial do CRM: a aba executiva "Analítico" do Dashboard.
       router.push(`/${domain}/dashboard?tab=analitico`);

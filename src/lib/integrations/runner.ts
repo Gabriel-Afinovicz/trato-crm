@@ -47,6 +47,11 @@ export interface RunnerOptions {
   friendlyMessage?: (err: unknown) => string;
   /** Extrai o http status do erro para o log. */
   httpStatusFromError?: (err: unknown) => number | null;
+  /**
+   * Detalhe estruturado do erro para gravar em `integration_logs.response`
+   * (ex.: corpo bruto da recusa do provedor). Best-effort.
+   */
+  errorResponse?: (err: unknown) => Record<string, unknown> | null;
 }
 
 const DEFAULTS = {
@@ -127,6 +132,7 @@ export async function runIntegration(
           errorMessage:
             options.friendlyMessage?.(err) ??
             (err instanceof Error ? err.message : String(err)),
+          response: options.errorResponse?.(err) ?? null,
           durationMs: Date.now() - started,
         });
         console.error(

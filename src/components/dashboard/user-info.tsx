@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { MemberEditModal } from "@/components/settings/member-edit-modal";
 
 interface UserInfoProps {
   domain: string;
@@ -16,6 +18,7 @@ interface UserInfoProps {
 export function UserInfo({ domain }: UserInfoProps) {
   const { profile, loading, signOut } = useAuth();
   const router = useRouter();
+  const [editingSelf, setEditingSelf] = useState(false);
 
   async function handleLogout() {
     const isSuperAdmin = profile?.role === "super_admin";
@@ -44,6 +47,7 @@ export function UserInfo({ domain }: UserInfoProps) {
   const isSuperAdmin = profile.role === "super_admin";
 
   return (
+    <>
     <div className="flex items-center gap-2">
       {isSuperAdmin && (
         <Link
@@ -99,11 +103,36 @@ export function UserInfo({ domain }: UserInfoProps) {
       <Button
         variant="ghost"
         size="sm"
+        onClick={() => setEditingSelf(true)}
+        className="h-7 px-2 text-xs"
+        title="Editar meus dados e senha"
+      >
+        Meu perfil
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={handleLogout}
         className="h-7 px-2 text-xs"
       >
         Sair
       </Button>
     </div>
+
+      {editingSelf && profile && (
+        <MemberEditModal
+          memberId={profile.id}
+          domain={domain}
+          viewerRole={profile.role}
+          viewerId={profile.id}
+          onClose={() => setEditingSelf(false)}
+          onSaved={() => {
+            setEditingSelf(false);
+            router.refresh();
+          }}
+        />
+      )}
+    </>
   );
 }

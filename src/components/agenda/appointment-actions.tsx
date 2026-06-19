@@ -4,6 +4,12 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import {
+  getClinicorpSyncState,
+  CLINICORP_SYNC_LABEL,
+  CLINICORP_SYNC_PILL,
+  CLINICORP_SYNC_DOT,
+} from "@/lib/clinicorp/sync-badge";
 import { sendWhatsAppMessage } from "@/lib/whatsapp/send-from-client";
 import type {
   AppointmentDetailed,
@@ -15,6 +21,7 @@ interface AppointmentActionsProps {
   domain: string;
   appointment: AppointmentDetailed;
   templates: MessageTemplate[];
+  clinicorpEnabled: boolean;
   onClose: () => void;
   onChanged: () => void;
   onEdit: (a: AppointmentDetailed) => void;
@@ -138,12 +145,14 @@ export function AppointmentActions({
   domain,
   appointment,
   templates,
+  clinicorpEnabled,
   onClose,
   onChanged,
   onEdit,
   onScheduleReturn,
 }: AppointmentActionsProps) {
   const { companyId } = useCurrentCompany();
+  const syncState = getClinicorpSyncState(appointment, clinicorpEnabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<{ message: string; chatId?: string } | null>(
@@ -154,6 +163,7 @@ export function AppointmentActions({
   const [linkBaseIsLocal, setLinkBaseIsLocal] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- valor derivado do window (client-only), resolvido apos montar
     setLinkBaseIsLocal(isLocalOrInsecureBase(resolveAppBaseUrl()));
   }, []);
 
@@ -326,9 +336,6 @@ export function AppointmentActions({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-wide text-gray-500">
-              Consulta
-            </p>
             <h3 className="text-base font-semibold text-gray-900">
               {appointment.lead_name ?? "Lead"}
             </h3>
@@ -344,6 +351,23 @@ export function AppointmentActions({
                 <span>· {appointment.procedure_name}</span>
               )}
             </div>
+            {syncState && (
+              <div
+                className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${CLINICORP_SYNC_PILL[syncState]}`}
+                title={
+                  syncState === "syncing"
+                    ? "O agendamento está sendo enviado para a agenda da Clinicorp."
+                    : syncState === "synced"
+                      ? "Este agendamento já está na agenda da Clinicorp."
+                      : "Não foi possível enviar para a Clinicorp. Tente editar/remarcar."
+                }
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${CLINICORP_SYNC_DOT[syncState]}`}
+                />
+                {CLINICORP_SYNC_LABEL[syncState]}
+              </div>
+            )}
           </div>
           <button
             type="button"

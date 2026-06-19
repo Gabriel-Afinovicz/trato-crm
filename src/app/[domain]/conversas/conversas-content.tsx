@@ -2294,7 +2294,10 @@ export function ConversasContent({
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="flex w-80 shrink-0 flex-col border-r border-gray-200 bg-white">
+        <aside
+          data-tour="conversas-list"
+          className="flex w-80 shrink-0 flex-col border-r border-gray-200 bg-white"
+        >
           <div className="border-b border-gray-200 p-3">
             <input
               type="text"
@@ -2899,6 +2902,7 @@ export function ConversasContent({
                   }}
                 />
                 <textarea
+                  data-tour="conversas-input"
                   value={draft}
                   onChange={(e) => setDraftSmart(e.target.value)}
                   onKeyDown={handleKey}

@@ -3,6 +3,7 @@ import { getAuthSession, getDomainCompany } from "@/lib/supabase/cached-data";
 import {
   getAgendaResources,
   getAgendaSchedule,
+  getClinicorpEnabled,
   getMonthAppointments,
 } from "@/lib/supabase/agenda-data";
 import { AgendaContent } from "./agenda-content";
@@ -120,7 +121,10 @@ export default async function AgendaPage({
     rangeEnd = addDays(rangeStart, 1);
   }
 
-  const resources = await getAgendaResources(company.id);
+  const [resources, clinicorpEnabled] = await Promise.all([
+    getAgendaResources(company.id),
+    getClinicorpEnabled(company.id),
+  ]);
 
   if (viewMode === "month") {
     const monthlyAppointments = await getMonthAppointments(
@@ -146,6 +150,7 @@ export default async function AgendaPage({
         dentists={resources.dentists}
         clinicHours={resources.clinicHours}
         templates={resources.templates}
+        clinicorpEnabled={clinicorpEnabled}
       />
     );
   }
@@ -173,6 +178,7 @@ export default async function AgendaPage({
       dentists={resources.dentists}
       clinicHours={resources.clinicHours}
       templates={resources.templates}
+      clinicorpEnabled={clinicorpEnabled}
     />
   );
 }

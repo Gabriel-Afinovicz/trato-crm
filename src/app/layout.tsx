@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CRM",
+  title: "Trato CRM",
   description: "Sistema de gestão de leads para o seu negócio",
 };
 

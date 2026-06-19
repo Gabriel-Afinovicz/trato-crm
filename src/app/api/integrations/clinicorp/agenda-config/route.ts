@@ -70,20 +70,31 @@ export async function GET(req: NextRequest) {
     typeof cfg.default_dentist_person_id === "string"
       ? cfg.default_dentist_person_id
       : "";
+  const schedulingMode = cfg.scheduling_mode === "chair" ? "chair" : "professional";
+  const defaultChairId =
+    typeof cfg.default_chair_id === "string" ? cfg.default_chair_id : "";
 
   return NextResponse.json({
     configured: Boolean(creds.username && creds.token && creds.subscriber_id),
     clinicBusinessId,
+    schedulingMode,
     defaultDentistPersonId,
+    defaultChairId,
     dentistMap: parseDentistMap(cfg.dentist_map),
+    roomChairMap: parseDentistMap(cfg.room_chair_map),
+    procedureMap: parseDentistMap(cfg.procedure_map),
   });
 }
 
 interface PutPayload {
   companyId?: string;
   clinicBusinessId?: string;
+  schedulingMode?: "professional" | "chair";
   defaultDentistPersonId?: string;
+  defaultChairId?: string;
   dentistMap?: Record<string, string>;
+  roomChairMap?: Record<string, string>;
+  procedureMap?: Record<string, string>;
 }
 
 export async function PUT(req: NextRequest) {
@@ -108,8 +119,12 @@ export async function PUT(req: NextRequest) {
   }
 
   const clinicBusinessId = (body.clinicBusinessId ?? "").trim();
+  const schedulingMode = body.schedulingMode === "chair" ? "chair" : "professional";
   const defaultDentistPersonId = (body.defaultDentistPersonId ?? "").trim();
+  const defaultChairId = (body.defaultChairId ?? "").trim();
   const dentistMap = parseDentistMap(body.dentistMap);
+  const roomChairMap = parseDentistMap(body.roomChairMap);
+  const procedureMap = parseDentistMap(body.procedureMap);
 
   const supabase = await createClient();
   // A integracao (credenciais) precisa existir antes de configurar a agenda.
@@ -137,8 +152,12 @@ export async function PUT(req: NextRequest) {
   const nextConfig = {
     ...currentConfig,
     clinic_business_id: clinicBusinessId,
+    scheduling_mode: schedulingMode,
     default_dentist_person_id: defaultDentistPersonId,
+    default_chair_id: defaultChairId,
     dentist_map: dentistMap,
+    room_chair_map: roomChairMap,
+    procedure_map: procedureMap,
   };
 
   const { error: updateErr } = await supabase
@@ -156,7 +175,11 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     clinicBusinessId,
+    schedulingMode,
     defaultDentistPersonId,
+    defaultChairId,
     dentistMap,
+    roomChairMap,
+    procedureMap,
   });
 }

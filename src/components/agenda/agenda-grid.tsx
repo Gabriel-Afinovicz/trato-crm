@@ -17,6 +17,11 @@ import type {
   AppointmentDetailed,
   ClinicHours,
 } from "@/lib/types/database";
+import {
+  getClinicorpSyncState,
+  CLINICORP_SYNC_DOT,
+  CLINICORP_SYNC_LABEL,
+} from "@/lib/clinicorp/sync-badge";
 
 const PX_PER_MIN = 1.0;
 const SLOT_MINUTES = 30;
@@ -48,6 +53,7 @@ export interface AgendaDropTarget {
 interface AgendaGridProps {
   days: GridDay[];
   appointments: AppointmentDetailed[];
+  clinicorpEnabled: boolean;
   blocks: AgendaBlock[];
   hourBoundsStart: number;
   hourBoundsEnd: number;
@@ -104,6 +110,7 @@ function parseColKey(id: string) {
 
 function DraggableAppointment({
   appointment,
+  clinicorpEnabled,
   topPx,
   heightPx,
   className,
@@ -114,6 +121,7 @@ function DraggableAppointment({
   borderLeftColor,
 }: {
   appointment: AppointmentDetailed;
+  clinicorpEnabled: boolean;
   topPx: number;
   heightPx: number;
   className: string;
@@ -123,6 +131,7 @@ function DraggableAppointment({
   hidden: boolean;
   borderLeftColor?: string | null;
 }) {
+  const syncState = getClinicorpSyncState(appointment, clinicorpEnabled);
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `app::${appointment.id}`,
     data: { appointmentId: appointment.id },
@@ -159,6 +168,13 @@ function DraggableAppointment({
       style={style}
     >
       <div className="flex items-center gap-1">
+        {syncState && (
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${CLINICORP_SYNC_DOT[syncState]}`}
+            title={CLINICORP_SYNC_LABEL[syncState]}
+            aria-label={CLINICORP_SYNC_LABEL[syncState]}
+          />
+        )}
         <span className="truncate font-semibold text-slate-800 tracking-tight">{appointment.lead_name}</span>
         {noShow && (
           <span
@@ -217,6 +233,7 @@ function DroppableColumn({
 export function AgendaGrid({
   days,
   appointments,
+  clinicorpEnabled,
   blocks,
   hourBoundsStart,
   hourBoundsEnd,
@@ -649,6 +666,7 @@ export function AgendaGrid({
                     <DraggableAppointment
                       key={a.id}
                       appointment={a}
+                      clinicorpEnabled={clinicorpEnabled}
                       topPx={topMin * PX_PER_MIN}
                       heightPx={durMin * PX_PER_MIN - 2}
                       className={statusColor(a.status)}

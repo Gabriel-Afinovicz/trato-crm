@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { markSessionAlive } from "@/lib/auth/session-heartbeat";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -77,6 +78,9 @@ export function WosniczLoginForm() {
         await supabase.auth.signOut();
         throw new Error("Acesso restrito ao Super Admin.");
       }
+
+      // Marca a aba como "viva" para o guard de sessao (evita logout imediato).
+      markSessionAlive();
 
       router.push("/wosnicz/dashboard");
       router.refresh();

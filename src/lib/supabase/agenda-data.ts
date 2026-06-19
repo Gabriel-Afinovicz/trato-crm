@@ -80,7 +80,7 @@ export const getAgendaSchedule = cache(
       supabase
         .from("appointments")
         .select(
-          `id, company_id, lead_id, dentist_id, room_id, procedure_type_id, starts_at, ends_at, status, notes, clinicorp_appointment_id, created_at, updated_at,
+          `id, company_id, lead_id, dentist_id, room_id, procedure_type_id, starts_at, ends_at, status, notes, clinicorp_appointment_id, clinicorp_sync_status, created_at, updated_at,
            leads!inner(name, phone),
            users:dentist_id(name),
            rooms:room_id(name, color),
@@ -128,6 +128,7 @@ export const getAgendaSchedule = cache(
       status: r.status,
       notes: r.notes,
       clinicorp_appointment_id: r.clinicorp_appointment_id,
+      clinicorp_sync_status: r.clinicorp_sync_status,
       created_at: r.created_at,
       updated_at: r.updated_at,
       lead_name: r.leads?.name ?? null,
@@ -145,6 +146,24 @@ export const getAgendaSchedule = cache(
       blocks: (blocksRes.data as unknown as AgendaBlock[]) ?? [],
       holidays: (holidaysRes.data as unknown as ClinicHoliday[]) ?? [],
     };
+  }
+);
+
+/**
+ * Indica se a empresa tem a integracao Clinicorp ativa. Usado pela agenda
+ * para decidir se mostra o selo de sincronizacao nos cards de agendamento.
+ */
+export const getClinicorpEnabled = cache(
+  async (companyId: string): Promise<boolean> => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("company_integrations")
+      .select("status")
+      .eq("company_id", companyId)
+      .eq("provider", "clinicorp")
+      .maybeSingle();
+    const row = data as { status?: string } | null;
+    return !!row && row.status !== "disabled";
   }
 );
 

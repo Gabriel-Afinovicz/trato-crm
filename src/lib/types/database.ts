@@ -160,6 +160,8 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   is_dentist: boolean;
+  /** Override manual de profissional (independe de tags). is_dentist = manual OR tag. */
+  is_dentist_manual: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -205,8 +207,20 @@ export interface ProcedureType {
   default_duration_minutes: number;
   default_value: number | null;
   is_active: boolean;
+  /** ID do procedimento na Clinicorp (importado/mapeado); null se nao vinculado. */
+  clinicorp_procedure_id: string | null;
   created_at: string;
 }
+
+/**
+ * Status da sincronizacao do agendamento com a agenda da Clinicorp:
+ *  - "pending": sincronizacao em andamento.
+ *  - "synced": agendamento criado na Clinicorp (tambem indicado por
+ *    `clinicorp_appointment_id`).
+ *  - "failed": a Clinicorp recusou/erro na criacao.
+ *  - null: nao aplicavel (sem integracao) ou ainda nao tentado.
+ */
+export type ClinicorpSyncStatus = "pending" | "synced" | "failed";
 
 export interface Appointment {
   id: string;
@@ -221,6 +235,8 @@ export interface Appointment {
   notes: string | null;
   /** ID do agendamento na agenda da Clinicorp; null se ainda nao sincronizado. */
   clinicorp_appointment_id: string | null;
+  /** Status da sincronizacao com a Clinicorp (para feedback visual na agenda). */
+  clinicorp_sync_status: ClinicorpSyncStatus | null;
   created_at: string;
   updated_at: string;
 }
@@ -462,6 +478,12 @@ export interface Tag {
   name: string;
   color: string;
   created_at: string;
+  /**
+   * Id da Categoria de Agendamento da Clinicorp (marcador) vinculada a esta
+   * tag. Quando presente, a tag corresponde a uma categoria importada e e
+   * usada para sincronizar a categoria do agendamento na Clinicorp.
+   */
+  clinicorp_category_id: string | null;
 }
 
 export interface LeadTag {
@@ -787,9 +809,23 @@ export interface Database {
         Row: Appointment;
         Insert: Omit<
           Appointment,
-          "id" | "created_at" | "updated_at" | "status" | "notes"
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "status"
+          | "notes"
+          | "clinicorp_appointment_id"
+          | "clinicorp_sync_status"
         > &
-          Partial<Pick<Appointment, "status" | "notes">>;
+          Partial<
+            Pick<
+              Appointment,
+              | "status"
+              | "notes"
+              | "clinicorp_appointment_id"
+              | "clinicorp_sync_status"
+            >
+          >;
         Update: Partial<Omit<Appointment, "id" | "created_at" | "updated_at">>;
       };
       clinic_hours: {
@@ -845,8 +881,11 @@ export interface Database {
       };
       tags: {
         Row: Tag;
-        Insert: Omit<Tag, "id" | "created_at" | "color"> &
-          Partial<Pick<Tag, "color">>;
+        Insert: Omit<
+          Tag,
+          "id" | "created_at" | "color" | "clinicorp_category_id"
+        > &
+          Partial<Pick<Tag, "color" | "clinicorp_category_id">>;
         Update: Partial<Omit<Tag, "id" | "created_at">>;
       };
       lead_tags: {

@@ -17,17 +17,86 @@ import "server-only";
 import type {
   ClinicorpAddLeadBody,
   ClinicorpBusiness,
+  ClinicorpCategory,
+  ClinicorpChair,
   ClinicorpCampaign,
-  ClinicorpCreateAppointmentBody,
   ClinicorpCreateAppointmentResult,
   ClinicorpCreatePatientBody,
   ClinicorpCredentials,
   ClinicorpGenericResponse,
+  ClinicorpProcedure,
   ClinicorpProfessional,
 } from "./types";
 
 const BASE_URL = "https://api.clinicorp.com/rest/v1";
 const DEFAULT_TIMEOUT_MS = 5_000;
+
+/**
+ * Nomes candidatos do campo de CADEIRA no create_appointment_by_api. A doc nao
+ * confirma o nome exato (e a resposta real ja divergiu da doc); por isso o
+ * fluxo tenta estes em ordem ate um ser aceito, e o teste em conta real
+ * confirma qual funciona. O mais provavel (analogo a Dentist_PersonId) vem
+ * primeiro.
+ */
+export const CHAIR_FIELD_CANDIDATES = [
+  "Chair_PersonId",
+  "ChairId",
+  "Chair_BusinessId",
+  "ChairPersonId",
+  "Chair_Person_Id",
+] as const;
+
+/** Campos de id que a Clinicorp exige como NUMERO (nao string) no create. */
+const APPOINTMENT_NUMERIC_KEYS = [
+  "Clinic_BusinessId",
+  "Dentist_PersonId",
+  "Patient_PersonId",
+  ...CHAIR_FIELD_CANDIDATES,
+];
+
+/** Junta Message (string) e Messages (array) de um erro da Clinicorp, em minusculas. */
+export function clinicorpErrorText(err: unknown): string {
+  const p = (err as { payload?: { Message?: unknown; Messages?: unknown } })
+    ?.payload;
+  const parts: string[] = [];
+  if (typeof p?.Message === "string") parts.push(p.Message);
+  if (Array.isArray(p?.Messages)) parts.push(...p.Messages.map((m) => String(m)));
+  return parts.join(" ").toLowerCase();
+}
+
+/**
+ * Detalhe estruturado de um erro da Clinicorp para gravar em
+ * `integration_logs.response` — preserva a mensagem ORIGINAL (sem
+ * minusculas) e o status HTTP para diagnostico preciso da recusa.
+ */
+export function clinicorpErrorInfo(err: unknown): Record<string, unknown> | null {
+  const e = err as { status?: number; payload?: unknown } | null | undefined;
+  if (!e) return null;
+  const info: Record<string, unknown> = {};
+  if (typeof e.status === "number") info.status = e.status;
+  const payload = e.payload;
+  if (payload && typeof payload === "object") {
+    const p = payload as Record<string, unknown>;
+    if (p.Message !== undefined) info.message = p.Message;
+    if (p.Messages !== undefined) info.messages = p.Messages;
+    if (info.message === undefined && info.messages === undefined) {
+      info.payload = payload;
+    }
+  } else if (typeof payload === "string" && payload.trim()) {
+    info.message = payload;
+  }
+  if (info.message === undefined && info.messages === undefined && info.payload === undefined) {
+    const msg = (e as { message?: unknown }).message;
+    if (typeof msg === "string") info.message = msg;
+  }
+  return Object.keys(info).length ? info : null;
+}
+
+/** True quando o erro indica que faltou Profissional/Cadeira (campo nao reconhecido). */
+export function isMissingResourceError(err: unknown): boolean {
+  const t = clinicorpErrorText(err);
+  return t.includes("profissional") && t.includes("cadeira");
+}
 
 export class ClinicorpConfigError extends Error {
   constructor(message = "Integração Clinicorp não configurada") {
@@ -146,9 +215,24 @@ function normalizeCampaigns(raw: unknown): ClinicorpCampaign[] {
 /** Extrai um array de respostas que podem vir como [], {data:[]} ou {items:[]}. */
 function toArray(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
-  for (const key of ["data", "items", "list", "results"]) {
-    const v = (raw as Record<string, unknown> | null)?.[key];
-    if (Array.isArray(v)) return v;
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    for (const key of [
+      "data",
+      "items",
+      "list",
+      "results",
+      "procedures",
+      "Procedures",
+      "rows",
+      "records",
+    ]) {
+      if (Array.isArray(obj[key])) return obj[key] as unknown[];
+    }
+    // Fallback: primeira propriedade cujo valor seja um array.
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v)) return v;
+    }
   }
   return [];
 }
@@ -200,6 +284,75 @@ function normalizeProfessionals(raw: unknown): ClinicorpProfessional[] {
       ]);
       const name =
         firstString(obj, ["Name", "FullName", "name", "PersonName"]) ??
+        id ??
+        "";
+      return { id: id ?? "", name: String(name) };
+    })
+    .filter((p) => p.id.length > 0);
+}
+
+/** Normaliza GET /appointment/list_categories -> ClinicorpCategory[]. */
+function normalizeCategories(raw: unknown): ClinicorpCategory[] {
+  return toArray(raw)
+    .map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const id = firstString(obj, ["id", "Id", "CategoryId", "Category_Id"]);
+      const description =
+        firstString(obj, ["Description", "Name", "description", "name"]) ?? "";
+      const color = firstString(obj, ["Color", "color"]) ?? "";
+      return {
+        id: id ?? "",
+        description: String(description),
+        color: String(color),
+      };
+    })
+    .filter((c) => c.id.length > 0 && c.description.trim().length > 0);
+}
+
+/** Normaliza GET /business/list_chairs -> ClinicorpChair[]. */
+function normalizeChairs(raw: unknown): ClinicorpChair[] {
+  return toArray(raw)
+    .map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const id = firstString(obj, [
+        "Chair_PersonId",
+        "ChairId",
+        "Chair_BusinessId",
+        "ChairPersonId",
+        "Chair_Person_Id",
+        "PersonId",
+        "id",
+        "Id",
+      ]);
+      const name =
+        firstString(obj, ["Name", "ChairName", "name", "Description"]) ??
+        id ??
+        "";
+      return { id: id ?? "", name: String(name) };
+    })
+    .filter((c) => c.id.length > 0);
+}
+
+/** Normaliza GET /procedures/list -> ClinicorpProcedure[]. */
+function normalizeProcedures(raw: unknown): ClinicorpProcedure[] {
+  return toArray(raw)
+    .map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      const id = firstString(obj, [
+        "Procedure_PersonId",
+        "ProcedureId",
+        "Procedure_Id",
+        "PersonId",
+        "id",
+        "Id",
+      ]);
+      const name =
+        firstString(obj, [
+          "Name",
+          "ProcedureName",
+          "Description",
+          "name",
+        ]) ??
         id ??
         "";
       return { id: id ?? "", name: String(name) };
@@ -362,6 +515,22 @@ export const clinicorp = {
     return { professionals: normalizeProfessionals(data), httpStatus };
   },
 
+  /** Lista procedimentos (para mapear Servicos do CRM -> procedimento Clinicorp). */
+  async listProcedures(
+    creds: ClinicorpCredentials
+  ): Promise<{
+    procedures: ClinicorpProcedure[];
+    raw: unknown;
+    httpStatus: number;
+  }> {
+    const { data, httpStatus } = await request<unknown>(
+      `/procedures/list?subscriber_id=${encodeURIComponent(creds.subscriber_id)}`,
+      creds,
+      { method: "GET" }
+    );
+    return { procedures: normalizeProcedures(data), raw: data, httpStatus };
+  },
+
   /**
    * Cria um agendamento direto na agenda da Clinicorp.
    * Resposta esperada: array `[{ Status: "CREATED", id }]`. Tolerante a objeto
@@ -369,7 +538,7 @@ export const clinicorp = {
    */
   async createAppointmentByApi(
     creds: ClinicorpCredentials,
-    body: Omit<ClinicorpCreateAppointmentBody, "subscriber_id">
+    body: Record<string, unknown>
   ): Promise<{ data: ClinicorpCreateAppointmentResult[]; httpStatus: number }> {
     const { data, httpStatus } = await request<unknown>(
       "/appointment/create_appointment_by_api",
@@ -378,12 +547,48 @@ export const clinicorp = {
         method: "POST",
         body: jsonWithNumericIds(
           { subscriber_id: creds.subscriber_id, ...body },
-          ["Clinic_BusinessId", "Dentist_PersonId", "Patient_PersonId"]
+          APPOINTMENT_NUMERIC_KEYS
         ),
+        // O create da Clinicorp e lento (observado ~10-13s). Com o timeout
+        // padrao de 5s o cliente abortava, o runner re-tentava e a Clinicorp
+        // — que ja havia criado o agendamento — gerava DUPLICATAS. Um timeout
+        // generoso permite concluir em uma unica tentativa.
+        timeoutMs: 30_000,
       }
     );
     const arr = Array.isArray(data) ? data : data ? [data] : [];
     return { data: arr as ClinicorpCreateAppointmentResult[], httpStatus };
+  },
+
+  /**
+   * Lista as Categorias de Agendamento ("Marcadores") da Clinicorp
+   * (GET /appointment/list_categories). Importadas como tags do CRM.
+   */
+  async listCategories(
+    creds: ClinicorpCredentials
+  ): Promise<{ categories: ClinicorpCategory[]; httpStatus: number }> {
+    const { data, httpStatus } = await request<unknown>(
+      `/appointment/list_categories?subscriber_id=${encodeURIComponent(creds.subscriber_id)}`,
+      creds,
+      { method: "GET" }
+    );
+    return { categories: normalizeCategories(data), httpStatus };
+  },
+
+  /** Lista cadeiras/salas (para agendar por cadeira em vez de profissional). */
+  async listChairs(
+    creds: ClinicorpCredentials
+  ): Promise<{
+    chairs: ClinicorpChair[];
+    raw: unknown;
+    httpStatus: number;
+  }> {
+    const { data, httpStatus } = await request<unknown>(
+      `/business/list_chairs?subscriber_id=${encodeURIComponent(creds.subscriber_id)}`,
+      creds,
+      { method: "GET" }
+    );
+    return { chairs: normalizeChairs(data), raw: data, httpStatus };
   },
 
   /** Cancela um agendamento na Clinicorp pelo id retornado na criacao. */

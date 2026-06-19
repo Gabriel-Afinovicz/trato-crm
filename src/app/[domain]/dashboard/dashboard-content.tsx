@@ -252,7 +252,10 @@ export function DashboardContent({
             tudo na mesma linha. Em telas estreitas, faz wrap. */}
         <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-xl font-bold text-gray-900">Dashboard</h2>
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+          <div
+            data-tour="dashboard-tabs"
+            className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm"
+          >
             {/* Ordem fixada: Analítico, Kanban, Funil. */}
             <TabButton
               active={tab === "analitico"}

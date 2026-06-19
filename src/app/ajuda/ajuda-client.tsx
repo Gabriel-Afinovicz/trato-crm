@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ReactNode } from "react";
+import { resetAllToursLocal } from "@/lib/onboarding/use-onboarding-tour";
 
 interface AjudaClientProps {
   domain?: string;
@@ -101,7 +102,16 @@ function HighlightText({ text, highlight }: { text: string; highlight: string })
 
 export function AjudaClient({ domain }: AjudaClientProps) {
   const backHref = domain ? `/${domain}/dashboard` : "/";
-  
+
+  // Reinicia o tour guiado: limpa as marcacoes de "ja visto" deste
+  // navegador e volta ao CRM, onde o tour dispara novamente.
+  function handleRestartTour() {
+    resetAllToursLocal();
+    if (domain) {
+      window.location.href = `/${domain}/dashboard`;
+    }
+  }
+
   const [activeTab, setActiveTab] = useState("inicio");
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -433,14 +443,15 @@ export function AjudaClient({ domain }: AjudaClientProps) {
           title: "Tabela Completa de Atalhos de Teclado",
           description: "Confira todos os atalhos disponíveis no sistema. Eles ficam desativados apenas quando você está digitando em campos de texto (para evitar disparos acidentais):",
           steps: [
-            "Navegação Global: G seguido de D (Dashboard) / L (Leads) / A (Agenda) / C (Conversas) / S (Configurações).",
+            "Navegação Global: G seguido de D (Dashboard, abre o Analítico) / L (Leads) / A (Agenda) / C (Conversas) / S (Configurações).",
             "Ações Rápidas: N (Novo Lead ou Nova Consulta) / Ctrl + Enter (Salvar Ficha do Lead) / Esc (Fechar Modais e Telas Laterais).",
             "Abas de Dashboard: Teclas 1, 2 e 3 alternam respectivamente entre Analítico, Kanban e Funil de Vendas.",
             "Agenda: T (Ir para hoje) / ← e → (Voltar/Avançar período) / D, W, M (Exibição por Dia, Semana e Mês).",
             "Conversas/WhatsApp: J e K (Navegar entre contatos da lista) / Ctrl + F (Focar na busca de mensagens da conversa)."
           ],
           tips: [
-            "Pressione a tecla ? a qualquer momento no CRM autenticado para abrir o painel visual flutuante de atalhos."
+            "Pressione a tecla ? a qualquer momento no CRM autenticado para abrir o painel visual flutuante de atalhos.",
+            "Os atalhos contextuais — Dashboard (1/2/3), Agenda (T, ← , →, D, W, M, N) e Conversas (J/K, Ctrl+F) — funcionam apenas quando você está na tela correspondente."
           ],
           keywords: ["atalhos", "teclado", "tabela", "teclas", "navegação", "J", "K", "T", "N", "Esc", "atalhos de teclado"]
         }
@@ -538,6 +549,79 @@ export function AjudaClient({ domain }: AjudaClientProps) {
 
   const activeCategory = categories.find((cat) => cat.id === activeTab);
 
+  // Diferenciais em destaque no topo da pagina (o "porque usar").
+  const differentials: { icon: ReactNode; title: string; desc: string }[] = [
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+        </svg>
+      ),
+      title: "WhatsApp integrado",
+      desc: "Atenda sem sair do CRM: áudios, mídias, modelos de mensagem (digite /) e sincronização das conversas em segundo plano.",
+    },
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+      ),
+      title: "Busca universal (Ctrl + K)",
+      desc: "Encontre leads, abra uma conversa de WhatsApp pelo telefone e navegue entre telas em um piscar de olhos.",
+    },
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6a2.25 2.25 0 0 1 2.25-2.25h1.5A2.25 2.25 0 0 1 9.75 6v12a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18V6ZM14.25 6A2.25 2.25 0 0 1 16.5 3.75H18A2.25 2.25 0 0 1 20.25 6v6A2.25 2.25 0 0 1 18 14.25h-1.5A2.25 2.25 0 0 1 14.25 12V6Z" />
+        </svg>
+      ),
+      title: "Kanban inteligente",
+      desc: "Arraste leads entre etapas. Ao marcar ganho ou perda, o CRM abre o formulário de valor fechado ou motivo da perda na hora.",
+    },
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+        </svg>
+      ),
+      title: "Prevenção de duplicados",
+      desc: "Ao digitar o telefone de um novo lead, o sistema avisa se ele já existe — com link direto para a ficha cadastrada.",
+    },
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+        </svg>
+      ),
+      title: "Agenda com fuso fixo",
+      desc: "Salas, profissionais e bloqueios com detecção automática de conflitos — sempre no fuso horário oficial da organização.",
+    },
+    {
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+        </svg>
+      ),
+      title: "Integração Clinicorp",
+      desc: "Sincronize leads e agendamentos com seu sistema/ERP, sem digitação dupla e mantendo o responsável da negociação.",
+    },
+  ];
+
+  // Trilhas "comece por aqui" — passos clicaveis levando as telas certas.
+  const adminPath: { label: string; href?: string }[] = [
+    { label: "Configurar o pipeline (etapas do Kanban)", href: domain ? `/${domain}/settings?tab=pipeline` : undefined },
+    { label: "Adicionar membros da equipe", href: domain ? `/${domain}/settings?tab=members` : undefined },
+    { label: "Definir os horários da agenda", href: domain ? `/${domain}/settings?tab=hours` : undefined },
+    { label: "Conectar o WhatsApp", href: domain ? `/${domain}/settings?tab=whatsapp` : undefined },
+    { label: "Criar o primeiro lead", href: domain ? `/${domain}/leads/new` : undefined },
+  ];
+  const operatorPath: { label: string; href?: string }[] = [
+    { label: "Conhecer o Kanban de leads", href: domain ? `/${domain}/dashboard?tab=kanban` : undefined },
+    { label: "Cadastrar um lead (tecla N)", href: domain ? `/${domain}/leads/new` : undefined },
+    { label: "Atender no WhatsApp", href: domain ? `/${domain}/conversas` : undefined },
+    { label: "Dominar os atalhos (Ctrl + K e ?)" },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased selection:bg-blue-500 selection:text-white">
       {/* Cabeçalho Premium com Gradiente */}
@@ -621,6 +705,121 @@ export function AjudaClient({ domain }: AjudaClientProps) {
           </div>
         </div>
       </header>
+
+      {/* Hero de diferenciais + trilhas de primeiros passos. Oculto durante
+          a busca para nao competir com os resultados. */}
+      {!searchQuery && (
+        <section className="border-b border-slate-200 bg-white">
+          <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="max-w-2xl">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                  Tudo o que sua organização precisa, em um só lugar
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  Capte leads, atenda pelo WhatsApp, gerencie o funil e a agenda
+                  sem trocar de ferramenta. Veja os diferenciais e siga uma
+                  trilha rápida para começar.
+                </p>
+              </div>
+              <button
+                onClick={handleRestartTour}
+                disabled={!domain}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/10 transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  domain
+                    ? "Reinicia o tour guiado passo a passo dentro do CRM"
+                    : "Abra a ajuda a partir do CRM para reiniciar o tour"
+                }
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Refazer tour guiado
+              </button>
+            </div>
+
+            {/* Cards de diferenciais. */}
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {differentials.map((d) => (
+                <div
+                  key={d.title}
+                  className="group rounded-2xl border border-slate-200 bg-slate-50/60 p-4 transition-all hover:border-blue-300 hover:bg-white hover:shadow-sm"
+                >
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                    {d.icon}
+                  </div>
+                  <h3 className="mt-3 text-sm font-bold text-slate-900">
+                    {d.title}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    {d.desc}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Trilhas por papel. */}
+            <div className="mt-8">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+                Comece por aqui
+              </h3>
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                {[
+                  {
+                    badge: "Sou Administrador",
+                    subtitle: "Deixe o CRM pronto para a equipe usar.",
+                    steps: adminPath,
+                  },
+                  {
+                    badge: "Sou Operador",
+                    subtitle: "Comece a atender e fechar leads hoje.",
+                    steps: operatorPath,
+                  },
+                ].map((track) => (
+                  <div
+                    key={track.badge}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                  >
+                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                      {track.badge}
+                    </span>
+                    <p className="mt-2 text-xs text-slate-500">{track.subtitle}</p>
+                    <ol className="mt-3 space-y-1.5">
+                      {track.steps.map((st, idx) => {
+                        const inner = (
+                          <>
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600 group-hover/step:bg-blue-100 group-hover/step:text-blue-700">
+                              {idx + 1}
+                            </span>
+                            <span className="pt-0.5">{st.label}</span>
+                          </>
+                        );
+                        return (
+                          <li key={st.label}>
+                            {st.href ? (
+                              <Link
+                                href={st.href}
+                                className="group/step flex items-start gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-blue-50/60 hover:text-blue-700"
+                              >
+                                {inner}
+                              </Link>
+                            ) : (
+                              <div className="flex items-start gap-2.5 px-2 py-1.5 text-sm font-medium text-slate-600">
+                                {inner}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Grid Principal */}
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[260px_1fr] lg:gap-8 lg:px-8">

@@ -19,6 +19,8 @@ interface CreateOperatorPayload {
   role?: "operator" | "admin";
   tagIds?: string[];
   sectorIds?: string[];
+  /** Marca o membro como profissional (aparece na agenda, filtros e disponibilidade). */
+  isDentist?: boolean;
 }
 
 const EXTENSION_REGEX = /^[0-9]+$/;
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
   const sectorIds = Array.isArray(body.sectorIds)
     ? body.sectorIds.filter((t): t is string => typeof t === "string")
     : [];
+  const isDentist = body.isDentist === true;
 
   if (optionalEmail && !EMAIL_REGEX.test(optionalEmail)) {
     return NextResponse.json(
@@ -151,6 +154,20 @@ export async function POST(req: NextRequest) {
       );
     if (sectorErr) {
       warnings.push(`erro ao salvar setores: ${sectorErr.message}`);
+    }
+  }
+
+  // Marca como profissional quando solicitado: faz o membro aparecer na
+  // agenda, nos filtros e na disponibilidade. Usamos o override manual
+  // (is_dentist_manual) para nao ser sobrescrito pela sincronizacao por tags;
+  // is_dentist efetivo = manual OR tag, entao setamos ambos.
+  if (typeof newUserId === "string" && isDentist) {
+    const { error: dentistErr } = await supabaseAdmin
+      .from("users")
+      .update({ is_dentist_manual: true, is_dentist: true })
+      .eq("id", newUserId);
+    if (dentistErr) {
+      warnings.push(`erro ao marcar como profissional: ${dentistErr.message}`);
     }
   }
 
