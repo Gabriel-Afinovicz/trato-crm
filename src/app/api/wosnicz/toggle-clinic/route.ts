@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireSuperAdmin } from "@/lib/supabase/require-super-admin";
+import { requireOrgManagerSuperAdmin } from "@/lib/supabase/require-super-admin";
 import { verifySuperAdminCredentials } from "@/lib/supabase/verify-credentials";
 
 interface TogglePayload {
@@ -11,11 +11,20 @@ interface TogglePayload {
 }
 
 export async function POST(req: NextRequest) {
-  let session: { userId: string; authId: string };
+  let session: { userId: string; authId: string; canManageOrganizations: boolean };
   try {
-    session = await requireSuperAdmin();
+    session = await requireOrgManagerSuperAdmin();
   } catch (err) {
     const code = err instanceof Error ? err.message : "UNAUTHORIZED";
+    if (code === "ORG_MANAGE_FORBIDDEN") {
+      return NextResponse.json(
+        {
+          error:
+            "Seu perfil de super admin não tem permissão para ativar ou desativar organizações.",
+        },
+        { status: 403 }
+      );
+    }
     const status = code === "FORBIDDEN" ? 403 : 401;
     return NextResponse.json({ error: code }, { status });
   }

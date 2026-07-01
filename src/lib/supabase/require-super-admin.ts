@@ -24,7 +24,7 @@ export async function requireSuperAdmin() {
   const admin = createAdminClient();
   const { data: profile, error: profileError } = await admin
     .from("users")
-    .select("id, role")
+    .select("id, role, can_manage_organizations")
     .eq("auth_id", user.id)
     .maybeSingle();
 
@@ -32,7 +32,9 @@ export async function requireSuperAdmin() {
     throw new Error("UNAUTHORIZED");
   }
 
-  const record = profile as { id: string; role: string } | null;
+  const record = profile as
+    | { id: string; role: string; can_manage_organizations: boolean | null }
+    | null;
 
   if (!record) {
     throw new Error("UNAUTHORIZED");
@@ -42,5 +44,25 @@ export async function requireSuperAdmin() {
     throw new Error("FORBIDDEN");
   }
 
-  return { userId: record.id, authId: user.id };
+  return {
+    userId: record.id,
+    authId: user.id,
+    canManageOrganizations: record.can_manage_organizations === true,
+  };
+}
+
+/**
+ * Igual ao `requireSuperAdmin`, mas exige que o super admin tenha permissao
+ * para gerenciar organizacoes (ativar/desativar/excluir). Super admins criados
+ * pelo Painel Master nascem sem essa permissao.
+ *
+ * Lanca `ORG_MANAGE_FORBIDDEN` quando o usuario e super admin mas nao pode
+ * gerenciar organizacoes.
+ */
+export async function requireOrgManagerSuperAdmin() {
+  const session = await requireSuperAdmin();
+  if (!session.canManageOrganizations) {
+    throw new Error("ORG_MANAGE_FORBIDDEN");
+  }
+  return session;
 }

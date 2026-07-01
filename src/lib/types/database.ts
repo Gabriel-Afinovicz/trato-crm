@@ -162,6 +162,12 @@ export interface User {
   is_dentist: boolean;
   /** Override manual de profissional (independe de tags). is_dentist = manual OR tag. */
   is_dentist_manual: boolean;
+  /**
+   * Somente super_admins com esta flag podem ativar/desativar e excluir
+   * organizacoes no Painel Master. Super admins criados pelo painel nascem
+   * com `false` (acesso somente leitura/entrada nas organizacoes).
+   */
+  can_manage_organizations: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -727,8 +733,16 @@ export interface Database {
       };
       users: {
         Row: User;
-        Insert: Omit<User, "id" | "created_at" | "updated_at" | "role" | "is_active"> &
-          Partial<Pick<User, "role" | "is_active">>;
+        Insert: Omit<
+          User,
+          | "id"
+          | "created_at"
+          | "updated_at"
+          | "role"
+          | "is_active"
+          | "can_manage_organizations"
+        > &
+          Partial<Pick<User, "role" | "is_active" | "can_manage_organizations">>;
         Update: Partial<Omit<User, "id" | "created_at" | "updated_at">>;
       };
       leads: {

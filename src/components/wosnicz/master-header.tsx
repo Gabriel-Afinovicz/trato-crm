@@ -16,6 +16,7 @@ export function MasterHeader() {
   }
 
   const isDashboard = pathname === "/wosnicz/dashboard";
+  const isSuperAdmins = pathname === "/wosnicz/super-admins";
 
   return (
     <header className="border-b border-slate-800 bg-slate-900 text-slate-100">
@@ -42,6 +43,14 @@ export function MasterHeader() {
               Organizações
             </Link>
           )}
+          <Link
+            href="/wosnicz/super-admins"
+            className={`rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-slate-800 hover:text-white ${
+              isSuperAdmins ? "bg-slate-800 text-white" : "text-slate-300"
+            }`}
+          >
+            Super Admins
+          </Link>
           <Link
             href="/wosnicz/clinicas/nova"
             className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-slate-900 transition-colors hover:bg-amber-400"

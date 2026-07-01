@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthSession } from "@/lib/supabase/cached-data";
 import { ClinicUsersList } from "@/components/wosnicz/clinic-users-list";
 import { ClinicDangerZone } from "@/components/wosnicz/clinic-danger-zone";
 
@@ -13,6 +14,9 @@ export default async function ClinicDetailPage({
 }: ClinicDetailPageProps) {
   const { id } = await params;
   const supabase = await createClient();
+
+  const { profile } = await getAuthSession();
+  const canManageOrganizations = profile?.can_manage_organizations === true;
 
   const { data: clinic } = await supabase
     .from("companies")
@@ -131,7 +135,7 @@ export default async function ClinicDetailPage({
         <ClinicUsersList users={(users ?? []) as never} />
       </section>
 
-      {!isWosnicz && (
+      {!isWosnicz && canManageOrganizations && (
         <section>
           <ClinicDangerZone
             clinicId={c.id}
@@ -140,6 +144,14 @@ export default async function ClinicDetailPage({
             isActive={c.is_active ?? true}
           />
         </section>
+      )}
+
+      {!isWosnicz && !canManageOrganizations && (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+          Seu perfil de super admin tem acesso somente leitura. Você pode
+          visualizar e entrar nesta organização, mas não pode
+          ativá-la/desativá-la nem excluí-la.
+        </div>
       )}
 
       {isWosnicz && (
