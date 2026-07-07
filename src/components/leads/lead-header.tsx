@@ -55,8 +55,10 @@ export function LeadHeader({
         toast.success("Lead excluído com sucesso");
         router.push(`/${domain}/leads`);
       }
-    } catch (err: any) {
-      toast.error("Erro inesperado ao excluir o lead", { description: err.message });
+    } catch (err) {
+      toast.error("Erro inesperado ao excluir o lead", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setDeleting(false);
       setShowDeleteModal(false);
@@ -91,20 +93,19 @@ export function LeadHeader({
           .eq("is_active", true)
           .order("name"),
         supabase
-          .from("users")
-          .select("id, name, is_dentist")
+          .from("clinicorp_professionals")
+          .select("id, name")
           .eq("company_id", companyId)
           .eq("is_active", true)
-          .neq("role", "super_admin")
           .order("name"),
       ]);
       if (cancelled) return;
       setAgendaResources({
         rooms: (r.data as unknown as Room[]) ?? [],
         procedures: (p.data as unknown as ProcedureType[]) ?? [],
-        dentists:
-          (u.data as unknown as Pick<User, "id" | "name" | "is_dentist">[]) ??
-          [],
+        dentists: ((u.data as { id: string; name: string }[] | null) ?? []).map(
+          (d) => ({ id: d.id, name: d.name, is_dentist: true })
+        ),
       });
     })();
     return () => {

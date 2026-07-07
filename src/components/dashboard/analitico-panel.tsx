@@ -19,6 +19,7 @@ import type {
   ClinicAnalyticsGoals,
   Sector,
 } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 /**
  * Formata um `Date` como "HH:mm:ss" em horário local — usado para
@@ -341,19 +342,16 @@ export function AnaliticoPanel({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {sectors.length > 0 && !sectorsRestricted && (
-            <select
+            <Select
               value={sectorId ?? ""}
               onChange={(e) => setSectorId(e.target.value || null)}
-              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition-all hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/10 cursor-pointer"
-              title="Filtrar por setor"
-            >
-              <option value="">Todos setores</option>
-              {sectors.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  {sec.name}
-                </option>
-              ))}
-            </select>
+              containerClassName="inline-block w-40"
+              className="py-1 px-2 text-xs h-8"
+              options={[
+                { value: "", label: "Todos setores" },
+                ...sectors.map((sec) => ({ value: sec.id, label: sec.name })),
+              ]}
+            />
           )}
           {sectorsRestricted && sectors.length > 0 && (
             <span

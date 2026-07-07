@@ -18,6 +18,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   clinicorp,
   clinicorpErrorInfo,
+  clinicorpErrorMessage,
   clinicorpErrorText,
   extractClinicorpAppointmentId,
   extractClinicorpPatientId,
@@ -358,6 +359,8 @@ interface AppointmentForSync {
   starts_at: string;
   ends_at: string;
   dentist_id: string | null;
+  /** Dentist_PersonId da Clinicorp do profissional escolhido no agendamento. */
+  dentist_person_id: string | null;
   room_id: string | null;
   clinicorp_appointment_id: string | null;
   notes: string | null;
@@ -379,7 +382,7 @@ async function loadAppointmentForSync(
   const { data, error } = await admin
     .from("appointments")
     .select(
-      "id, starts_at, ends_at, dentist_id, room_id, clinicorp_appointment_id, notes, procedure_type_id, leads(name, phone, lead_tags(tags(name, color, clinicorp_category_id))), procedure_types:procedure_type_id(name, clinicorp_procedure_id)"
+      "id, starts_at, ends_at, dentist_id, room_id, clinicorp_appointment_id, notes, procedure_type_id, clinicorp_professionals:dentist_id(clinicorp_person_id), leads(name, phone), appointment_tags(tags(name, color, clinicorp_category_id)), procedure_types:procedure_type_id(name, clinicorp_procedure_id)"
     )
     .eq("id", appointmentId)
     .eq("company_id", companyId)
@@ -392,22 +395,27 @@ async function loadAppointmentForSync(
 
   const leadRaw = (data as { leads?: unknown }).leads;
   const lead = (Array.isArray(leadRaw) ? leadRaw[0] : leadRaw) as
-    | { name?: string; phone?: string | null; lead_tags?: unknown }
+    | { name?: string; phone?: string | null }
     | null;
   const procRaw = (data as { procedure_types?: unknown }).procedure_types;
   const proc = (Array.isArray(procRaw) ? procRaw[0] : procRaw) as
     | { name?: string; clinicorp_procedure_id?: string | null }
     | null;
+  const profRaw = (data as { clinicorp_professionals?: unknown })
+    .clinicorp_professionals;
+  const prof = (Array.isArray(profRaw) ? profRaw[0] : profRaw) as
+    | { clinicorp_person_id?: string | null }
+    | null;
 
-  // Marcador -> categoria Clinicorp: usa a primeira tag do lead que foi
+  // Marcador -> categoria Clinicorp: usa a primeira tag do agendamento que foi
   // importada de uma categoria (tem clinicorp_category_id). A API de criacao
   // casa a categoria por descricao+cor, entao enviamos nome+cor da tag.
   let categoryDescription: string | null = null;
   let categoryColor: string | null = null;
-  const leadTagsRaw = (lead as { lead_tags?: unknown } | null)?.lead_tags;
-  const leadTags = Array.isArray(leadTagsRaw) ? leadTagsRaw : [];
-  for (const lt of leadTags) {
-    const tagRaw = (lt as { tags?: unknown })?.tags;
+  const apptTagsRaw = (data as { appointment_tags?: unknown })?.appointment_tags;
+  const apptTags = Array.isArray(apptTagsRaw) ? apptTagsRaw : [];
+  for (const at of apptTags) {
+    const tagRaw = (at as { tags?: unknown })?.tags;
     const tag = (Array.isArray(tagRaw) ? tagRaw[0] : tagRaw) as
       | {
           name?: string;
@@ -436,6 +444,7 @@ async function loadAppointmentForSync(
       starts_at: data.starts_at as string,
       ends_at: data.ends_at as string,
       dentist_id: (data.dentist_id as string | null) ?? null,
+      dentist_person_id: prof?.clinicorp_person_id ?? null,
       room_id: (data.room_id as string | null) ?? null,
       clinicorp_appointment_id:
         (data.clinicorp_appointment_id as string | null) ?? null,
@@ -462,6 +471,8 @@ async function saveClinicorpAppointmentId(
     .update({
       clinicorp_appointment_id: clinicorpId,
       clinicorp_sync_status: clinicorpId ? "synced" : null,
+      // Sucesso limpa qualquer motivo de falha anterior.
+      clinicorp_sync_error: clinicorpId ? null : undefined,
     })
     .eq("id", appointmentId);
 }
@@ -472,9 +483,37 @@ async function setAppointmentSyncStatus(
   status: "pending" | "synced" | "failed"
 ): Promise<void> {
   const admin = createAdminClient();
+  // Ao (re)tentar (pending) ou concluir (synced), limpa o motivo de falha antigo.
+  const patch: Record<string, unknown> = { clinicorp_sync_status: status };
+  if (status !== "failed") patch.clinicorp_sync_error = null;
+  await admin.from("appointments").update(patch).eq("id", appointmentId);
+}
+
+/**
+ * Marca o agendamento como falho e grava o MOTIVO da recusa para exibir ao
+ * usuario. Prioriza a mensagem crua da Clinicorp (ex.: o `Message` de um erro
+ * 400, como "MobilePhone enviado é diferente do cadastro…"); cai na mensagem
+ * amigavel quando a API nao devolve um texto util.
+ */
+async function markAppointmentSyncFailed(
+  appointmentId: string,
+  err: unknown
+): Promise<void> {
+  let reason = "";
+  if (err instanceof SkipIntegration) {
+    reason = err.message;
+  } else {
+    reason =
+      clinicorpErrorMessage(err) ||
+      friendlyClinicorpError(err, "create_appointment").message;
+  }
+  const admin = createAdminClient();
   await admin
     .from("appointments")
-    .update({ clinicorp_sync_status: status })
+    .update({
+      clinicorp_sync_status: "failed",
+      clinicorp_sync_error: reason ? reason.slice(0, 500) : null,
+    })
     .eq("id", appointmentId);
 }
 
@@ -501,9 +540,11 @@ function resolveResourcePatches(
     return CHAIR_FIELD_CANDIDATES.map((field) => ({ [field]: chairId }));
   }
 
+  // O profissional do agendamento agora e um profissional importado da
+  // Clinicorp: usamos o Dentist_PersonId dele direto (sem mapear). Se o
+  // agendamento nao tiver profissional, cai no profissional padrao.
   const dentistPersonId =
-    (appt.dentist_id ? config.dentistMap[appt.dentist_id] : null) ??
-    config.defaultDentistPersonId;
+    appt.dentist_person_id ?? config.defaultDentistPersonId;
   if (!dentistPersonId) {
     throw new SkipIntegration(
       "Agendamento sem profissional mapeado e sem profissional padrão configurado em Configurações > Clinicorp."
@@ -715,9 +756,9 @@ export function syncAppointmentCreated(
           },
         };
       } catch (err) {
-        // "failed" para o card mostrar o estado de falha; relanca para o
-        // runner registrar o motivo em integration_logs.
-        await setAppointmentSyncStatus(appointmentId, "failed");
+        // "failed" + motivo para o card exibir o porque da recusa; relanca
+        // para o runner registrar o motivo em integration_logs.
+        await markAppointmentSyncFailed(appointmentId, err);
         throw err;
       }
     },
@@ -772,7 +813,7 @@ export function syncAppointmentRescheduled(
           },
         };
       } catch (err) {
-        await setAppointmentSyncStatus(appointmentId, "failed");
+        await markAppointmentSyncFailed(appointmentId, err);
         throw err;
       }
     },

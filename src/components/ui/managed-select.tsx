@@ -76,11 +76,18 @@ export function ManagedSelect<T extends ManagedSelectItem>({
   const [formColor, setFormColor] = useState<string>(palette[0] as string);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const selected = useMemo(
     () => items.find((it) => it.id === value) ?? null,
     [items, value]
   );
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return items;
+    return items.filter((it) => it.name.toLowerCase().includes(q));
+  }, [items, searchQuery]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,7 +108,6 @@ export function ManagedSelect<T extends ManagedSelectItem>({
       document.removeEventListener("mousedown", onClickOutside);
       document.removeEventListener("keydown", onEsc);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -115,6 +121,7 @@ export function ManagedSelect<T extends ManagedSelectItem>({
     setMode("list");
     setEditingId(null);
     setFormError(null);
+    setSearchQuery("");
   }
 
   function startCreate() {
@@ -123,6 +130,7 @@ export function ManagedSelect<T extends ManagedSelectItem>({
     setFormName("");
     setFormColor(palette[0] as string);
     setFormError(null);
+    setSearchQuery("");
   }
 
   function startEdit(item: T) {
@@ -131,6 +139,7 @@ export function ManagedSelect<T extends ManagedSelectItem>({
     setFormName(item.name);
     setFormColor((item.color as string) || (palette[0] as string));
     setFormError(null);
+    setSearchQuery("");
   }
 
   async function submitForm() {
@@ -229,13 +238,35 @@ export function ManagedSelect<T extends ManagedSelectItem>({
           <div className="absolute left-0 right-0 z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
             {mode === "list" && (
               <>
+                <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+                  <svg
+                    className="h-4 w-4 text-gray-400 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth="2"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z"
+                    />
+                  </svg>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Pesquisar..."
+                    className="w-full text-sm border-0 focus:outline-none focus:ring-0 p-0 text-gray-900"
+                  />
+                </div>
                 <ul className="max-h-56 overflow-y-auto py-1">
-                  {items.length === 0 && (
+                  {filteredItems.length === 0 && (
                     <li className="px-3 py-2 text-sm text-gray-400">
-                      {emptyLabel}
+                      {searchQuery ? "Nenhum resultado encontrado" : emptyLabel}
                     </li>
                   )}
-                  {items.map((item) => {
+                  {filteredItems.map((item) => {
                     const isSelected = item.id === value;
                     return (
                       <li

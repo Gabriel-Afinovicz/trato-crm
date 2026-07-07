@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 
 /**
  * Modal unificado de edicao de um membro: dados gerais + senha.
@@ -244,22 +245,18 @@ export function MemberEditModal({
 
             {canEditAll ? (
               <>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Permissão
-                  </label>
-                  <select
-                    value={roleValue}
-                    onChange={(e) =>
-                      setRoleValue(e.target.value as "operator" | "admin")
-                    }
-                    disabled={member.role === "super_admin"}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-gray-50"
-                  >
-                    <option value="operator">Operador</option>
-                    <option value="admin">Administrador</option>
-                  </select>
-                </div>
+                <Select
+                  label="Permissão"
+                  value={roleValue}
+                  onChange={(e) =>
+                    setRoleValue(e.target.value as "operator" | "admin")
+                  }
+                  disabled={member.role === "super_admin"}
+                  options={[
+                    { value: "operator", label: "Operador" },
+                    { value: "admin", label: "Administrador" },
+                  ]}
+                />
 
                 <label className="flex items-start gap-2 text-sm text-gray-700">
                   <input

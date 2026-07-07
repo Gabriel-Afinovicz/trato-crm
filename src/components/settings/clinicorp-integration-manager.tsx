@@ -6,6 +6,7 @@ import { useCurrentCompany } from "@/hooks/use-current-company";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import type {
   ClinicorpBusiness,
   ClinicorpCampaign,
@@ -80,9 +81,11 @@ export function ClinicorpIntegrationManager() {
     null
   );
   const [procedureMap, setProcedureMap] = useState<Record<string, string>>({});
-  const [crmDentists, setCrmDentists] = useState<CrmResource[]>([]);
   const [crmRooms, setCrmRooms] = useState<CrmResource[]>([]);
   const [crmProcedures, setCrmProcedures] = useState<CrmProcedure[]>([]);
+  const [importedProfessionalsCount, setImportedProfessionalsCount] =
+    useState(0);
+  const [importingProfessionals, setImportingProfessionals] = useState(false);
   const [importingProcedures, setImportingProcedures] = useState(false);
   const [importingCategories, setImportingCategories] = useState(false);
   const [loadingAgendaLists, setLoadingAgendaLists] = useState(false);
@@ -166,35 +169,39 @@ export function ClinicorpIntegrationManager() {
     setLoadingAgendaLists(true);
     try {
       const supabase = createClient();
-      const [bizRes, profRes, chairRes, procRes, dentRes, roomRes, crmProcRes] =
-        await Promise.all([
-          fetch(`/api/integrations/clinicorp/businesses?companyId=${companyId}`),
-          fetch(
-            `/api/integrations/clinicorp/professionals?companyId=${companyId}`
-          ),
-          fetch(`/api/integrations/clinicorp/chairs?companyId=${companyId}`),
-          fetch(`/api/integrations/clinicorp/procedures?companyId=${companyId}`),
-          supabase
-            .from("users")
-            .select("id, name")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .eq("is_dentist", true)
-            .neq("role", "super_admin")
-            .order("name"),
-          supabase
-            .from("rooms")
-            .select("id, name")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .order("name"),
-          supabase
-            .from("procedure_types")
-            .select("id, name, clinicorp_procedure_id")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .order("name"),
-        ]);
+      const [
+        bizRes,
+        profRes,
+        chairRes,
+        procRes,
+        importedProfRes,
+        roomRes,
+        crmProcRes,
+      ] = await Promise.all([
+        fetch(`/api/integrations/clinicorp/businesses?companyId=${companyId}`),
+        fetch(
+          `/api/integrations/clinicorp/professionals?companyId=${companyId}`
+        ),
+        fetch(`/api/integrations/clinicorp/chairs?companyId=${companyId}`),
+        fetch(`/api/integrations/clinicorp/procedures?companyId=${companyId}`),
+        supabase
+          .from("clinicorp_professionals")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", companyId)
+          .eq("is_active", true),
+        supabase
+          .from("rooms")
+          .select("id, name")
+          .eq("company_id", companyId)
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("procedure_types")
+          .select("id, name, clinicorp_procedure_id")
+          .eq("company_id", companyId)
+          .eq("is_active", true)
+          .order("name"),
+      ]);
       const bizPayload = (await bizRes.json().catch(() => ({}))) as {
         businesses?: ClinicorpBusiness[];
         error?: string;
@@ -224,7 +231,7 @@ export function ClinicorpIntegrationManager() {
       setProcedures(
         procRes.ok && procPayload.procedures ? procPayload.procedures : []
       );
-      setCrmDentists((dentRes.data as CrmResource[] | null) ?? []);
+      setImportedProfessionalsCount(importedProfRes.count ?? 0);
       setCrmRooms((roomRes.data as CrmResource[] | null) ?? []);
       setCrmProcedures((crmProcRes.data as CrmProcedure[] | null) ?? []);
     } catch {
@@ -272,6 +279,44 @@ export function ClinicorpIntegrationManager() {
       setAgendaError("Não foi possível salvar agora. Tente novamente.");
     } finally {
       setSavingAgenda(false);
+    }
+  }
+
+  async function handleImportProfessionals() {
+    if (!companyId) return;
+    setImportingProfessionals(true);
+    setAgendaError(null);
+    try {
+      const res = await fetch(
+        "/api/integrations/clinicorp/professionals/import",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId }),
+        }
+      );
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        imported?: number;
+        skipped?: number;
+        total?: number;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok || !payload.ok) {
+        setAgendaError(payload.error ?? "Falha ao importar profissionais.");
+        return;
+      }
+      toast.success("Profissionais importados!", {
+        description:
+          payload.message ??
+          `${payload.imported ?? 0} novo(s) · ${payload.skipped ?? 0} já existia(m).`,
+      });
+      await loadAgendaLists();
+    } catch {
+      setAgendaError("Não foi possível importar agora. Tente novamente.");
+    } finally {
+      setImportingProfessionals(false);
     }
   }
 
@@ -630,8 +675,8 @@ export function ClinicorpIntegrationManager() {
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
             Defina em qual clínica os agendamentos do CRM serão criados na
-            Clinicorp e, opcionalmente, ligue cada profissional do CRM ao
-            profissional correspondente na Clinicorp.
+            Clinicorp e importe profissionais, procedimentos e marcadores para
+            usar direto na agenda, sem mapear um a um.
           </p>
 
           {agendaError && (
@@ -663,21 +708,16 @@ export function ClinicorpIntegrationManager() {
           ) : (
             <div className="mt-4 space-y-5">
               <div>
-                <label className="mb-1 block text-xs font-semibold text-gray-600">
-                  Clínica que receberá os agendamentos *
-                </label>
-                <select
-                  value={clinicBusinessId}
-                  onChange={(e) => setClinicBusinessId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">Selecione uma clínica…</option>
-                  {businesses.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.id})
-                    </option>
-                  ))}
-                </select>
+              <Select
+                label="Clínica que receberá os agendamentos *"
+                value={clinicBusinessId}
+                onChange={(e) => setClinicBusinessId(e.target.value)}
+                placeholder="Selecione uma clínica…"
+                options={businesses.map((b) => ({
+                  value: b.id,
+                  label: `${b.name} (${b.id})`,
+                }))}
+              />
                 {businesses.length === 0 && (
                   <p className="mt-1 text-xs text-amber-600">
                     Nenhuma clínica retornada pela Clinicorp. Verifique as
@@ -720,90 +760,68 @@ export function ClinicorpIntegrationManager() {
               {schedulingMode === "professional" && (
                 <>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-gray-600">
-                      Profissional padrão *
-                    </label>
-                    <select
+                    <Select
+                      label="Profissional padrão *"
                       value={defaultDentistPersonId}
                       onChange={(e) => setDefaultDentistPersonId(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    >
-                      <option value="">Selecione um profissional…</option>
-                      {(professionals ?? []).map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Selecione um profissional…"
+                      options={(professionals ?? []).map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                      }))}
+                    />
                     <p className="mt-1 text-xs text-gray-400">
-                      Usado quando o agendamento do CRM não tem um profissional
-                      mapeado.
+                      Usado apenas quando o agendamento do CRM for salvo sem
+                      profissional selecionado.
                     </p>
                   </div>
 
-                  {crmDentists.length > 0 && (
-                    <div>
-                      <p className="mb-1 text-xs font-semibold text-gray-600">
-                        Mapeamento de profissionais (opcional)
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+                    <p className="mb-1 text-xs font-semibold text-gray-600">
+                      Profissionais
+                    </p>
+                    <p className="mb-2 text-xs text-gray-400">
+                      Importe os profissionais da Clinicorp para o CRM. Eles
+                      aparecem direto nos selects de profissional da agenda — o
+                      operador seleciona sem precisar mapear com usuários do
+                      sistema.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleImportProfessionals}
+                      loading={importingProfessionals}
+                    >
+                      Importar profissionais da Clinicorp
+                    </Button>
+                    {importedProfessionalsCount > 0 && (
+                      <p className="mt-2 text-xs text-emerald-600">
+                        {importedProfessionalsCount} profissional(is)
+                        importado(s) da Clinicorp.
                       </p>
-                      <p className="mb-2 text-xs text-gray-400">
-                        Sem mapeamento, usa o profissional padrão acima.
+                    )}
+                    {professionals && professionals.length === 0 && (
+                      <p className="mt-2 text-xs text-amber-600">
+                        Nenhum profissional retornado pela Clinicorp.
                       </p>
-                      <div className="space-y-2">
-                        {crmDentists.map((d) => (
-                          <div
-                            key={d.id}
-                            className="grid grid-cols-2 items-center gap-2"
-                          >
-                            <span className="truncate text-sm text-gray-700">
-                              {d.name}
-                            </span>
-                            <select
-                              value={dentistMap[d.id] ?? ""}
-                              onChange={(e) =>
-                                setDentistMap((prev) => {
-                                  const next = { ...prev };
-                                  if (e.target.value)
-                                    next[d.id] = e.target.value;
-                                  else delete next[d.id];
-                                  return next;
-                                })
-                              }
-                              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                            >
-                              <option value="">— sem mapeamento —</option>
-                              {(professionals ?? []).map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </>
               )}
 
               {schedulingMode === "chair" && (
                 <>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-gray-600">
-                      Cadeira / sala padrão *
-                    </label>
-                    <select
+                    <Select
+                      label="Cadeira / sala padrão *"
                       value={defaultChairId}
                       onChange={(e) => setDefaultChairId(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                    >
-                      <option value="">Selecione uma cadeira/sala…</option>
-                      {(chairs ?? []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="Selecione uma cadeira/sala…"
+                      options={(chairs ?? []).map((c) => ({
+                        value: c.id,
+                        label: c.name,
+                      }))}
+                    />
                     <p className="mt-1 text-xs text-gray-400">
                       Usada quando a sala do agendamento não está mapeada abaixo.
                     </p>
@@ -831,7 +849,7 @@ export function ClinicorpIntegrationManager() {
                             <span className="truncate text-sm text-gray-700">
                               {room.name}
                             </span>
-                            <select
+                            <Select
                               value={roomChairMap[room.id] ?? ""}
                               onChange={(e) =>
                                 setRoomChairMap((prev) => {
@@ -842,15 +860,12 @@ export function ClinicorpIntegrationManager() {
                                   return next;
                                 })
                               }
-                              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                            >
-                              <option value="">— sem mapeamento —</option>
-                              {(chairs ?? []).map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="— sem mapeamento —"
+                              options={(chairs ?? []).map((c) => ({
+                                value: c.id,
+                                label: c.name,
+                              }))}
+                            />
                           </div>
                         ))}
                       </div>
@@ -912,7 +927,7 @@ export function ClinicorpIntegrationManager() {
                             <span className="truncate text-sm text-gray-700">
                               {svc.name}
                             </span>
-                            <select
+                            <Select
                               value={procedureMap[svc.id] ?? ""}
                               onChange={(e) =>
                                 setProcedureMap((prev) => {
@@ -923,15 +938,12 @@ export function ClinicorpIntegrationManager() {
                                   return next;
                                 })
                               }
-                              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                            >
-                              <option value="">— sem mapeamento —</option>
-                              {(procedures ?? []).map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="— sem mapeamento —"
+                              options={(procedures ?? []).map((p) => ({
+                                value: p.id,
+                                label: p.name,
+                              }))}
+                            />
                           </div>
                         ))}
                     </div>

@@ -5,6 +5,7 @@ import {
   useId,
   useRef,
   useState,
+  useMemo,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
@@ -12,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { confirm } from "@/components/ui/confirm";
 import { AvailabilityPanel } from "./availability-panel";
+import { Select } from "@/components/ui/select";
 import type {
   AppointmentDetailed,
   AvailabilityReason,
@@ -20,6 +22,7 @@ import type {
   Lead,
   ProcedureType,
   Room,
+  Tag,
   User,
 } from "@/lib/types/database";
 import {
@@ -50,12 +53,12 @@ const ROOM_PRESET_COLORS = [
   "#6366f1",
 ];
 
-function parseDecimal(input: string) {
-  const cleaned = input.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
-  if (!cleaned) return null;
-  const value = Number(cleaned);
-  return Number.isFinite(value) ? value : null;
-}
+// function parseDecimal(input: string) {
+//   const cleaned = input.replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+//   if (!cleaned) return null;
+//   const value = Number(cleaned);
+//   return Number.isFinite(value) ? value : null;
+// }
 
 // Configuracoes de agenda da clinica (companies.settings.agenda), servidas por
 // GET /api/clinic/agenda-settings. Definidas localmente (e nao importadas da
@@ -182,36 +185,37 @@ export function AppointmentModal(props: AppointmentModalProps) {
   const settingsAppliedRef = useRef(false);
   const lockedLead = isEdit || Boolean(initial.leadId);
 
-  const [proceduresList, setProceduresList] = useState<ProcedureType[]>(procedures);
-  const [roomsList, setRoomsList] = useState<Room[]>(rooms);
+  const [createdRooms, setCreatedRooms] = useState<Room[]>([]);
 
-  useEffect(() => {
-    setProceduresList((prev) => {
-      const incomingIds = new Set(procedures.map((p) => p.id));
-      const localExtras = prev.filter((p) => !incomingIds.has(p.id));
-      return [...procedures, ...localExtras].sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
-    });
+  const proceduresList = useMemo(() => {
+    return [...procedures].sort((a, b) => a.name.localeCompare(b.name));
   }, [procedures]);
 
-  useEffect(() => {
-    setRoomsList((prev) => {
-      const incomingIds = new Set(rooms.map((r) => r.id));
-      const localExtras = prev.filter((r) => !incomingIds.has(r.id));
-      return [...rooms, ...localExtras].sort((a, b) =>
-        a.name.localeCompare(b.name)
-      );
-    });
-  }, [rooms]);
+  const roomsList = useMemo(() => {
+    const incomingIds = new Set(rooms.map((r) => r.id));
+    const localExtras = createdRooms.filter((r) => !incomingIds.has(r.id));
+    return [...rooms, ...localExtras].sort((a, b) => a.name.localeCompare(b.name));
+  }, [rooms, createdRooms]);
 
-  const [showProcedureForm, setShowProcedureForm] = useState(false);
-  const [newProcedure, setNewProcedure] = useState({
-    name: "",
-    duration: "30",
-    value: "",
-  });
-  const [creatingProcedure, setCreatingProcedure] = useState(false);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(
+    isEdit ? props.appointment.appointment_tags?.map((t) => t.id) ?? [] : []
+  );
+
+  useEffect(() => {
+    if (!companyId) return;
+    const supabase = createClient();
+    supabase
+      .from("tags")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("name")
+      .then(({ data }) => {
+        if (data) setAllTags(data as unknown as Tag[]);
+      });
+  }, [companyId]);
+
+
 
   const [showRoomForm, setShowRoomForm] = useState(false);
   const [newRoom, setNewRoom] = useState({
@@ -247,46 +251,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
     };
   }, [companyId, isEdit, initial.endsAt, initial.procedureId]);
 
-  async function handleCreateProcedure() {
-    if (!companyId) return;
-    const trimmed = newProcedure.name.trim();
-    if (!trimmed) {
-      setError("Informe o nome do serviço.");
-      return;
-    }
-    const dur = parseInt(newProcedure.duration, 10);
-    if (!Number.isFinite(dur) || dur < 5) {
-      setError("Duração inválida (mínimo 5 minutos).");
-      return;
-    }
-    setError(null);
-    setCreatingProcedure(true);
-    const supabase = createClient();
-    const value = parseDecimal(newProcedure.value);
-    const { data, error: insertErr } = await supabase
-      .from("procedure_types")
-      .insert({
-        company_id: companyId,
-        name: trimmed,
-        default_duration_minutes: dur,
-        default_value: value,
-      })
-      .select("*")
-      .single();
-    setCreatingProcedure(false);
-    if (insertErr || !data) {
-      setError(`Erro ao cadastrar serviço: ${insertErr?.message ?? ""}`);
-      return;
-    }
-    const created = data as unknown as ProcedureType;
-    setProceduresList((prev) =>
-      [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
-    );
-    setProcedureId(created.id);
-    if (!isEdit) setDuration(created.default_duration_minutes);
-    setShowProcedureForm(false);
-    setNewProcedure({ name: "", duration: "30", value: "" });
-  }
+
 
   async function handleCreateRoom() {
     if (!companyId) return;
@@ -313,9 +278,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
       return;
     }
     const created = data as unknown as Room;
-    setRoomsList((prev) =>
-      [...prev, created].sort((a, b) => a.name.localeCompare(b.name))
-    );
+    setCreatedRooms((prev) => [...prev, created]);
     setRoomId(created.id);
     setShowRoomForm(false);
     setNewRoom({ name: "", color: ROOM_PRESET_COLORS[0] });
@@ -356,10 +319,6 @@ export function AppointmentModal(props: AppointmentModalProps) {
   }, [companyId, leadSearch, lockedLead]);
 
   function handleProcedureChange(id: string) {
-    if (id === "__create__") {
-      setShowProcedureForm(true);
-      return;
-    }
     setProcedureId(id);
     if (!isEdit) {
       const proc = proceduresList.find((p) => p.id === id);
@@ -403,6 +362,34 @@ export function AppointmentModal(props: AppointmentModalProps) {
     } else if (!e.shiftKey && document.activeElement === last) {
       e.preventDefault();
       first.focus();
+    }
+  }
+
+  async function persistAppointmentTags(targetAppointmentId: string) {
+    const initial = new Set(
+      isEdit ? props.appointment.appointment_tags?.map((t) => t.id) ?? [] : []
+    );
+    const selected = new Set(selectedTagIds);
+    const toAdd = [...selected].filter((id) => !initial.has(id));
+    const toRemove = [...initial].filter((id) => !selected.has(id));
+
+    if (toAdd.length === 0 && toRemove.length === 0) return;
+
+    const supabase = createClient();
+    if (toAdd.length > 0) {
+      await supabase.from("appointment_tags").insert(
+        toAdd.map((tagId) => ({
+          appointment_id: targetAppointmentId,
+          tag_id: tagId,
+        }))
+      );
+    }
+    if (toRemove.length > 0) {
+      await supabase
+        .from("appointment_tags")
+        .delete()
+        .eq("appointment_id", targetAppointmentId)
+        .in("tag_id", toRemove);
     }
   }
 
@@ -508,6 +495,9 @@ export function AppointmentModal(props: AppointmentModalProps) {
         setSaving(false);
         return;
       }
+
+      await persistAppointmentTags(props.appointment.id);
+
       if (needsReschedule && companyId) {
         triggerClinicorpSync({
           companyId,
@@ -535,6 +525,11 @@ export function AppointmentModal(props: AppointmentModalProps) {
         setSaving(false);
         return;
       }
+
+      if (inserted) {
+        await persistAppointmentTags((inserted as { id: string }).id);
+      }
+
       if (inserted && companyId) {
         triggerClinicorpSync({
           companyId,
@@ -706,39 +701,25 @@ export function AppointmentModal(props: AppointmentModalProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">
-                Profissional
-              </label>
-              <select
+              <Select
+                label="Profissional"
                 value={dentistId}
                 onChange={(e) => setDentistId(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
-              >
-                <option value="">Sem profissional</option>
-                {dentists.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Sem profissional"
+                options={dentists.map((d) => ({ value: d.id, label: d.name }))}
+              />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">
-                Sala
-              </label>
-              <select
+              <Select
+                label="Sala"
                 value={roomId}
                 onChange={(e) => handleRoomChange(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
-              >
-                <option value="">Sem sala</option>
-                {roomsList.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-                <option value="__create__">+ Cadastrar nova sala</option>
-              </select>
+                placeholder="Sem sala"
+                options={[
+                  ...roomsList.map((r) => ({ value: r.id, label: r.name })),
+                  { value: "__create__", label: "+ Cadastrar nova sala" },
+                ]}
+              />
             </div>
           </div>
 
@@ -798,88 +779,16 @@ export function AppointmentModal(props: AppointmentModalProps) {
             </div>
           )}
 
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">
-              Serviço
-            </label>
-            <select
+            <Select
+              label="Serviço"
               value={procedureId}
               onChange={(e) => handleProcedureChange(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer font-medium text-slate-700 shadow-sm"
-            >
-              <option value="">Nenhum</option>
-              {proceduresList.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.default_duration_minutes}min
-                </option>
-              ))}
-              <option value="__create__">+ Cadastrar novo serviço</option>
-            </select>
-          </div>
-
-          {showProcedureForm && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
-              <p className="mb-2 text-xs font-bold text-blue-900">
-                Novo serviço
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                  type="text"
-                  placeholder="Nome do serviço"
-                  value={newProcedure.name}
-                  onChange={(e) =>
-                    setNewProcedure((p) => ({ ...p, name: e.target.value }))
-                  }
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
-                  autoFocus
-                />
-                <input
-                  type="number"
-                  min={5}
-                  step={5}
-                  placeholder="Duração (min)"
-                  value={newProcedure.duration}
-                  onChange={(e) =>
-                    setNewProcedure((p) => ({ ...p, duration: e.target.value }))
-                  }
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
-                />
-                <input
-                  type="text"
-                  placeholder="Valor (opcional, ex: 250,00)"
-                  value={newProcedure.value}
-                  onChange={(e) =>
-                    setNewProcedure((p) => ({ ...p, value: e.target.value }))
-                  }
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700"
-                />
-              </div>
-              <div className="mt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowProcedureForm(false);
-                    setNewProcedure({
-                      name: "",
-                      duration: "30",
-                      value: "",
-                    });
-                  }}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-all cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCreateProcedure}
-                  disabled={creatingProcedure || !newProcedure.name.trim()}
-                  className="rounded-lg bg-blue-600 px-4.5 py-1.5 text-xs font-bold text-white hover:bg-blue-700 shadow transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50"
-                >
-                  {creatingProcedure ? "Salvando..." : "Salvar serviço"}
-                </button>
-              </div>
-            </div>
-          )}
+              placeholder="Nenhum"
+              options={proceduresList.map((p) => ({
+                value: p.id,
+                label: `${p.name} · ${p.default_duration_minutes}min`,
+              }))}
+            />
 
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">
@@ -892,6 +801,61 @@ export function AppointmentModal(props: AppointmentModalProps) {
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-slate-700 shadow-sm"
               placeholder="Anotações sobre o agendamento..."
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+              Tags do Agendamento (Sincroniza com Clinicorp)
+            </label>
+            {allTags.length === 0 ? (
+              <p className="text-xs text-slate-400">Nenhuma tag cadastrada no sistema.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {allTags.map((tag) => {
+                  const selected = selectedTagIds.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedTagIds((prev) =>
+                          prev.includes(tag.id)
+                            ? prev.filter((id) => id !== tag.id)
+                            : [...prev, tag.id]
+                        );
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                        selected
+                          ? "border-transparent text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                      style={selected ? { backgroundColor: tag.color } : undefined}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${selected ? "bg-white/70" : ""}`}
+                        style={!selected ? { backgroundColor: tag.color } : undefined}
+                      />
+                      {tag.name}
+                      {selected && (
+                        <svg
+                          className="h-3 w-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2.5}
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m4.5 12.75 6 6 9-13.5"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {agendaSettings.allow_overlap && (

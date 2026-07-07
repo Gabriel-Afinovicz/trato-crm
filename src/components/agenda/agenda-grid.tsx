@@ -171,7 +171,11 @@ function DraggableAppointment({
         {syncState && (
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${CLINICORP_SYNC_DOT[syncState]}`}
-            title={CLINICORP_SYNC_LABEL[syncState]}
+            title={
+              syncState === "failed" && appointment.clinicorp_sync_error
+                ? `${CLINICORP_SYNC_LABEL[syncState]}: ${appointment.clinicorp_sync_error}`
+                : CLINICORP_SYNC_LABEL[syncState]
+            }
             aria-label={CLINICORP_SYNC_LABEL[syncState]}
           />
         )}
@@ -198,6 +202,28 @@ function DraggableAppointment({
           {appointment.procedure_name}
         </div>
       )}
+      {((appointment.lead_tags && appointment.lead_tags.length > 0) ||
+        (appointment.appointment_tags && appointment.appointment_tags.length > 0)) &&
+        heightPx >= 50 && (
+          <div className="mt-1 flex flex-wrap gap-1 items-center">
+            {appointment.lead_tags?.slice(0, 3).map((tag) => (
+              <span
+                key={tag.id}
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: tag.color }}
+                title={`Tag do Lead: ${tag.name}`}
+              />
+            ))}
+            {appointment.appointment_tags?.slice(0, 3).map((tag) => (
+              <span
+                key={tag.id}
+                className="h-1.5 w-3.5 shrink-0 rounded-sm border border-black/15 shadow-sm"
+                style={{ backgroundColor: tag.color }}
+                title={`Tag do Agendamento: ${tag.name}`}
+              />
+            ))}
+          </div>
+        )}
     </button>
   );
 }

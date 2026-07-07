@@ -219,6 +219,20 @@ export interface ProcedureType {
 }
 
 /**
+ * Profissional importado da Clinicorp. Vira a fonte dos "profissionais" da
+ * agenda do CRM (o operador seleciona direto no agendamento, sem mapear).
+ * `clinicorp_person_id` corresponde ao `Dentist_PersonId` da Clinicorp.
+ */
+export interface ClinicorpProfessional {
+  id: string;
+  company_id: string;
+  clinicorp_person_id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+/**
  * Status da sincronizacao do agendamento com a agenda da Clinicorp:
  *  - "pending": sincronizacao em andamento.
  *  - "synced": agendamento criado na Clinicorp (tambem indicado por
@@ -243,6 +257,12 @@ export interface Appointment {
   clinicorp_appointment_id: string | null;
   /** Status da sincronizacao com a Clinicorp (para feedback visual na agenda). */
   clinicorp_sync_status: ClinicorpSyncStatus | null;
+  /**
+   * Motivo da falha ao sincronizar com a Clinicorp (mensagem crua da API — ex.:
+   * o `Message` de um erro 400). Exibido ao usuario para orientar a correcao.
+   * Null quando nao houve falha.
+   */
+  clinicorp_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -255,6 +275,8 @@ export interface AppointmentDetailed extends Appointment {
   room_color: string | null;
   procedure_name: string | null;
   procedure_duration_minutes: number | null;
+  lead_tags?: Tag[];
+  appointment_tags?: Tag[];
 }
 
 export interface ClinicHours {
@@ -819,6 +841,12 @@ export interface Database {
           >;
         Update: Partial<Omit<ProcedureType, "id" | "created_at">>;
       };
+      clinicorp_professionals: {
+        Row: ClinicorpProfessional;
+        Insert: Omit<ClinicorpProfessional, "id" | "created_at" | "is_active"> &
+          Partial<Pick<ClinicorpProfessional, "id" | "is_active">>;
+        Update: Partial<Omit<ClinicorpProfessional, "id" | "created_at">>;
+      };
       appointments: {
         Row: Appointment;
         Insert: Omit<
@@ -830,6 +858,7 @@ export interface Database {
           | "notes"
           | "clinicorp_appointment_id"
           | "clinicorp_sync_status"
+          | "clinicorp_sync_error"
         > &
           Partial<
             Pick<
@@ -838,6 +867,7 @@ export interface Database {
               | "notes"
               | "clinicorp_appointment_id"
               | "clinicorp_sync_status"
+              | "clinicorp_sync_error"
             >
           >;
         Update: Partial<Omit<Appointment, "id" | "created_at" | "updated_at">>;
@@ -906,6 +936,20 @@ export interface Database {
         Row: LeadTag;
         Insert: LeadTag;
         Update: Partial<LeadTag>;
+      };
+      appointment_tags: {
+        Row: {
+          appointment_id: string;
+          tag_id: string;
+        };
+        Insert: {
+          appointment_id: string;
+          tag_id: string;
+        };
+        Update: Partial<{
+          appointment_id: string;
+          tag_id: string;
+        }>;
       };
       user_role_tags: {
         Row: UserRoleTag;

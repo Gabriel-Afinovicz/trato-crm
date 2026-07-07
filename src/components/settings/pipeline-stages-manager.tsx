@@ -30,6 +30,7 @@ import {
   type PipelineStage,
   type StageCategory,
 } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 const PRESET_COLORS = PIPELINE_STAGE_COLORS;
 
@@ -109,7 +110,7 @@ function StageRow({
       <div className="flex items-center gap-2 text-xs">
         <label className="inline-flex items-center gap-1 text-gray-600">
           Categoria
-          <select
+          <Select
             value={stage.category ?? ""}
             onChange={(e) =>
               onChangeCategory(
@@ -117,20 +118,14 @@ function StageRow({
                 (e.target.value || null) as StageCategory | null
               )
             }
-            className={`rounded border px-1.5 py-1 text-xs ${
-              stage.category
-                ? "border-gray-300 text-gray-700"
-                : "border-amber-300 bg-amber-50 text-amber-800"
-            }`}
-            title="Define como o lead será contado na mini-dash do Kanban/Leads."
-          >
-            <option value="">Sem categoria</option>
-            {STAGE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {STAGE_CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "Sem categoria" },
+              ...STAGE_CATEGORIES.map((c) => ({
+                value: c,
+                label: STAGE_CATEGORY_LABEL[c],
+              })),
+            ]}
+          />
         </label>
         <label className="inline-flex items-center gap-1 text-gray-600">
           <input
@@ -588,21 +583,19 @@ export function PipelineStagesManager() {
               />
             ))}
           </div>
-          <select
+          <Select
             value={newCategory}
             onChange={(e) =>
               setNewCategory(e.target.value as StageCategory | "")
             }
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            title="Categoria usada na mini-dash do Kanban e tela Leads."
-          >
-            <option value="">Sem categoria</option>
-            {STAGE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {STAGE_CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "Sem categoria" },
+              ...STAGE_CATEGORIES.map((c) => ({
+                value: c,
+                label: STAGE_CATEGORY_LABEL[c],
+              })),
+            ]}
+          />
           <button
             onClick={handleCreate}
             disabled={saving || !newName.trim()}

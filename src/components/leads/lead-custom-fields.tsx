@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AddCustomFieldForm } from "@/components/settings/add-custom-field-form";
 import { confirm } from "@/components/ui/confirm";
 import type { CustomField, CustomFieldValue } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 // Helper para adicionar opcao inline em select. Restrito a admins via API.
 async function appendCustomFieldOption(
@@ -462,17 +463,15 @@ export function CustomFieldRenderer({
             {field.name}{field.is_required && <span className="text-red-500"> *</span>}
           </label>
           <div className="flex gap-2">
-            <select
-              className={`${inputClass} flex-1`}
+            <Select
+              containerClassName="flex-1"
               value={value}
               onChange={(e) => onChange(e.target.value)}
               disabled={options.length === 0}
-            >
-              <option value="">Selecione...</option>
-              {options.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
-              ))}
-            </select>
+              placeholder="Selecione..."
+              error={hasError ? " " : undefined}
+              options={options.map((opt) => ({ value: opt, label: opt }))}
+            />
             {canAddOptions && !addingOption && (
               <button
                 type="button"

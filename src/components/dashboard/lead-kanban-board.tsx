@@ -12,7 +12,6 @@ import {
   closestCorners,
   type DragEndEvent,
   type DragStartEvent,
-  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -24,6 +23,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import { useLeadFilters } from "@/hooks/use-lead-filters";
 import type { PipelineStage, Sector } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 import type {
   KanbanLead,
   KanbanOperator,
@@ -559,7 +559,7 @@ export function LeadKanbanBoard({
   // continua mostrando o card seguindo o cursor e o `useDroppable`
   // destaca visualmente a coluna alvo via `isOver` — sem nenhum
   // setState no componente pai.
-  function handleDragOver(_event: DragOverEvent) {
+  function handleDragOver() {
     /* intencionalmente vazio — ver comentário acima */
   }
 
@@ -926,34 +926,30 @@ export function LeadKanbanBoard({
           </svg>
         </div>
 
-        <select
+        <Select
           value={assigneeFilter}
           onChange={(e) => setAssigneeFilter(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm cursor-pointer transition-all duration-200 hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
-        >
-          <option value="all">Todos os responsáveis</option>
-          <option value="unassigned">Sem responsável</option>
-          {operators.map((op) => (
-            <option key={op.id} value={op.id}>
-              {op.name}
-            </option>
-          ))}
-        </select>
+          containerClassName="inline-block w-48"
+          className="py-1 px-2 text-xs h-8"
+          options={[
+            { value: "all", label: "Todos os responsáveis" },
+            { value: "unassigned", label: "Sem responsável" },
+            ...operators.map((op) => ({ value: op.id, label: op.name })),
+          ]}
+        />
 
         {sectors.length > 0 && !sectorsRestricted && (
-          <select
+          <Select
             value={sectorFilter}
             onChange={(e) => setSectorFilter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm cursor-pointer transition-all duration-200 hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
-          >
-            <option value="all">Todos setores</option>
-            <option value="none">Sem setor</option>
-            {sectors.map((sec) => (
-              <option key={sec.id} value={sec.id}>
-                {sec.name}
-              </option>
-            ))}
-          </select>
+            containerClassName="inline-block w-44"
+            className="py-1 px-2 text-xs h-8"
+            options={[
+              { value: "all", label: "Todos setores" },
+              { value: "none", label: "Sem setor" },
+              ...sectors.map((sec) => ({ value: sec.id, label: sec.name })),
+            ]}
+          />
         )}
         {sectorsRestricted && sectors.length > 0 && (
           <span

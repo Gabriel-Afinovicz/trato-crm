@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import type { MessageTemplate, MessageTemplateKind } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 const KIND_LABEL: Record<MessageTemplateKind, string> = {
   confirmation: "Confirmação",
@@ -153,7 +154,7 @@ export function MessageTemplatesManager() {
           Novo template
         </h3>
         <div className="grid gap-3 sm:grid-cols-3">
-          <select
+          <Select
             value={draft.kind}
             onChange={(e) =>
               setDraft((d) => ({
@@ -161,14 +162,11 @@ export function MessageTemplatesManager() {
                 kind: e.target.value as MessageTemplateKind,
               }))
             }
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          >
-            {(Object.keys(KIND_LABEL) as MessageTemplateKind[]).map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABEL[k]}
-              </option>
-            ))}
-          </select>
+            options={(Object.keys(KIND_LABEL) as MessageTemplateKind[]).map((k) => ({
+              value: k,
+              label: KIND_LABEL[k],
+            }))}
+          />
           <input
             type="text"
             placeholder="Nome do template"
@@ -226,7 +224,7 @@ export function MessageTemplatesManager() {
                 {editingId === item.id ? (
                   <div className="space-y-2">
                     <div className="grid gap-2 sm:grid-cols-3">
-                      <select
+                      <Select
                         value={editDraft.kind}
                         onChange={(e) =>
                           setEditDraft((d) => ({
@@ -234,16 +232,13 @@ export function MessageTemplatesManager() {
                             kind: e.target.value as MessageTemplateKind,
                           }))
                         }
-                        className="rounded border border-gray-300 px-2 py-1 text-sm"
-                      >
-                        {(Object.keys(KIND_LABEL) as MessageTemplateKind[]).map(
-                          (k) => (
-                            <option key={k} value={k}>
-                              {KIND_LABEL[k]}
-                            </option>
-                          )
+                        options={(Object.keys(KIND_LABEL) as MessageTemplateKind[]).map(
+                          (k) => ({
+                            value: k,
+                            label: KIND_LABEL[k],
+                          })
                         )}
-                      </select>
+                      />
                       <input
                         type="text"
                         value={editDraft.name}

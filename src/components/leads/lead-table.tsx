@@ -20,6 +20,7 @@ import {
   STAGE_CATEGORIES,
 } from "@/lib/types/database";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { StageBadge } from "@/components/dashboard/stage-badge";
 import { LeadsMinidash } from "./leads-minidash";
 import {
@@ -474,21 +475,19 @@ export function LeadTable({ domain }: LeadTableProps) {
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
           {sectors.length > 0 && !sectorsRestricted && (
-            <select
+            <Select
               value={filters.state.sector ?? ""}
               onChange={(e) =>
                 filters.setFilters({ sector: e.target.value || null })
               }
-              className="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">Todos setores</option>
-              <option value="none">Sem setor</option>
-              {sectors.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  {sec.name}
-                </option>
-              ))}
-            </select>
+              containerClassName="inline-block w-40"
+              className="py-1 px-2 text-xs h-8"
+              options={[
+                { value: "", label: "Todos setores" },
+                { value: "none", label: "Sem setor" },
+                ...sectors.map((sec) => ({ value: sec.id, label: sec.name })),
+              ]}
+            />
           )}
           {sectorsRestricted && sectors.length > 0 && (
             <span
@@ -872,9 +871,9 @@ function BulkActionsBar({
       </span>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs text-gray-600">
-          Responsavel:{" "}
-          <select
+        <span className="flex items-center gap-1.5 text-xs text-gray-600">
+          <span>Responsável:</span>
+          <Select
             disabled={disabled}
             defaultValue=""
             onChange={(e) => {
@@ -883,24 +882,20 @@ function BulkActionsBar({
               if (v === "__none__") onAssign(null);
               else if (v) onAssign(v);
             }}
-            className="ml-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
-          >
-            <option value="" disabled>
-              Atribuir a...
-            </option>
-            <option value="__none__">— Sem responsavel</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            containerClassName="inline-block w-44"
+            className="py-1 text-xs h-8"
+            placeholder="Atribuir a..."
+            options={[
+              { value: "__none__", label: "— Sem responsável" },
+              ...members.map((m) => ({ value: m.id, label: m.name })),
+            ]}
+          />
+        </span>
 
         {sectors.length > 0 && (
-          <label className="text-xs text-gray-600">
-            Setor:{" "}
-            <select
+          <span className="flex items-center gap-1.5 text-xs text-gray-600">
+            <span>Setor:</span>
+            <Select
               disabled={disabled}
               defaultValue=""
               onChange={(e) => {
@@ -909,19 +904,15 @@ function BulkActionsBar({
                 if (v === "__none__") onSetSector(null);
                 else if (v) onSetSector(v);
               }}
-              className="ml-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
-            >
-              <option value="" disabled>
-                Mover para...
-              </option>
-              <option value="__none__">— Sem setor</option>
-              {sectors.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              containerClassName="inline-block w-44"
+              className="py-1 text-xs h-8"
+              placeholder="Mover para..."
+              options={[
+                { value: "__none__", label: "— Sem setor" },
+                ...sectors.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
+          </span>
         )}
       </div>
 

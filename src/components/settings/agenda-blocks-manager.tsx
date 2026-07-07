@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
-import type { AgendaBlock, Room, User } from "@/lib/types/database";
+import type { AgendaBlock, Room } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
-type DentistOption = Pick<User, "id" | "name" | "is_dentist">;
+type DentistOption = { id: string; name: string };
 
 function toLocalIso(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -42,7 +43,7 @@ export function AgendaBlocksManager() {
   async function fetchAll() {
     if (!companyId) return;
     const supabase = createClient();
-    const [blocksRes, roomsRes, usersRes] = await Promise.all([
+    const [blocksRes, roomsRes, profRes] = await Promise.all([
       supabase
         .from("agenda_blocks")
         .select("*")
@@ -56,20 +57,15 @@ export function AgendaBlocksManager() {
         .eq("is_active", true)
         .order("name"),
       supabase
-        .from("users")
-        .select("id, name, is_dentist")
+        .from("clinicorp_professionals")
+        .select("id, name")
         .eq("company_id", companyId)
         .eq("is_active", true)
-        .neq("role", "super_admin")
         .order("name"),
     ]);
     setItems((blocksRes.data as unknown as AgendaBlock[]) ?? []);
     setRooms((roomsRes.data as unknown as Room[]) ?? []);
-    setDentists(
-      ((usersRes.data as DentistOption[] | null) ?? []).filter(
-        (u) => u.is_dentist
-      )
-    );
+    setDentists((profRes.data as DentistOption[] | null) ?? []);
     setLoading(false);
   }
 
@@ -172,40 +168,20 @@ export function AgendaBlocksManager() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
-              Profissional
-            </label>
-            <select
-              value={dentistId}
-              onChange={(e) => setDentistId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">—</option>
-              {dentists.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
-              Sala
-            </label>
-            <select
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              <option value="">—</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Profissional"
+            value={dentistId}
+            onChange={(e) => setDentistId(e.target.value)}
+            placeholder="—"
+            options={dentists.map((d) => ({ value: d.id, label: d.name }))}
+          />
+          <Select
+            label="Sala"
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+            placeholder="—"
+            options={rooms.map((r) => ({ value: r.id, label: r.name }))}
+          />
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-600">
               Motivo

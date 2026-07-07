@@ -65,6 +65,29 @@ export function clinicorpErrorText(err: unknown): string {
 }
 
 /**
+ * Extrai a mensagem ORIGINAL (sem minusculas) de um erro da Clinicorp — junta
+ * `Message` (string) e `Messages` (array). Usada para exibir ao usuario o
+ * motivo exato da recusa (ex.: o `Message` de um erro 400). Retorna string
+ * vazia quando o erro nao traz um motivo textual.
+ */
+export function clinicorpErrorMessage(err: unknown): string {
+  const p = (err as { payload?: unknown })?.payload;
+  const parts: string[] = [];
+  if (typeof p === "string" && p.trim()) return p.trim();
+  const obj = (p ?? {}) as { Message?: unknown; Messages?: unknown };
+  if (typeof obj.Message === "string" && obj.Message.trim()) {
+    parts.push(obj.Message.trim());
+  }
+  if (Array.isArray(obj.Messages)) {
+    for (const m of obj.Messages) {
+      const s = String(m).trim();
+      if (s) parts.push(s);
+    }
+  }
+  return parts.join(" ").trim();
+}
+
+/**
  * Detalhe estruturado de um erro da Clinicorp para gravar em
  * `integration_logs.response` — preserva a mensagem ORIGINAL (sem
  * minusculas) e o status HTTP para diagnostico preciso da recusa.

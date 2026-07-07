@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { CustomFieldType } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 const FIELD_TYPE_OPTIONS: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Texto" },
@@ -99,20 +100,12 @@ export function AddCustomFieldForm({
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-sm text-gray-600">Tipo</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as CustomFieldType)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            >
-              {FIELD_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Tipo"
+            value={type}
+            onChange={(e) => setType(e.target.value as CustomFieldType)}
+            options={FIELD_TYPE_OPTIONS}
+          />
         </div>
 
         {hasOptions(type) && (

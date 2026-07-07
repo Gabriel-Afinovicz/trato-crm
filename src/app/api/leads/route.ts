@@ -22,6 +22,8 @@ interface CreateLeadPayload {
   lead?: Record<string, unknown> & { name?: string };
   appointment?: Record<string, unknown> | null;
   custom_field_values?: { custom_field_id: string; value: string }[];
+  lead_tags?: string[];
+  appointment_tags?: string[];
 }
 
 /**
@@ -311,18 +313,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: f.message }, { status: f.status });
   }
 
+  const newLeadId = (data as { lead_id?: string } | null)?.lead_id;
+  const newAppointmentId = (data as { appointment_id?: string } | null)
+    ?.appointment_id;
+
+  // Persistir tags do Lead
+  if (newLeadId && Array.isArray(body.lead_tags) && body.lead_tags.length > 0) {
+    await supabase.from("lead_tags").insert(
+      body.lead_tags.map((tagId) => ({ lead_id: newLeadId, tag_id: tagId }))
+    );
+  }
+
+  // Persistir tags do Agendamento
+  if (newAppointmentId && Array.isArray(body.appointment_tags) && body.appointment_tags.length > 0) {
+    await supabase.from("appointment_tags").insert(
+      body.appointment_tags.map((tagId) => ({ appointment_id: newAppointmentId, tag_id: tagId }))
+    );
+  }
+
   // Efeito colateral de integracao (fire-and-forget): envia o lead recem
   // criado para a Clinicorp se a integracao estiver ativa e a fonte tiver
   // campanha mapeada. NUNCA bloqueia nem reverte a criacao do lead.
-  const newLeadId = (data as { lead_id?: string } | null)?.lead_id;
   if (newLeadId) {
     syncLeadCreated(companyId, newLeadId);
   }
 
   // Se o lead foi criado ja com agendamento ("Ja agendou?"), reflete na agenda
   // da Clinicorp (fire-and-forget). Nunca bloqueia a criacao do lead.
-  const newAppointmentId = (data as { appointment_id?: string } | null)
-    ?.appointment_id;
   if (newAppointmentId) {
     syncAppointmentCreated(companyId, newAppointmentId);
   }

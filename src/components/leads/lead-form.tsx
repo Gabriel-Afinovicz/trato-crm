@@ -209,8 +209,8 @@ export function LeadForm({
         toast.success("Lead excluído com sucesso");
         router.push(`/${domain}/leads`);
       }
-    } catch (err: any) {
-      toast.error("Erro inesperado ao excluir o lead", { description: err.message });
+    } catch (err: unknown) {
+      toast.error("Erro inesperado ao excluir o lead", { description: err instanceof Error ? err.message : String(err) });
     } finally {
       setDeleting(false);
       setShowDeleteModal(false);
@@ -275,6 +275,7 @@ export function LeadForm({
   const [scheduleProcedureId, setScheduleProcedureId] = useState<string>("");
   const [scheduleNotes, setScheduleNotes] = useState<string>("");
   const [confirmOverlap, setConfirmOverlap] = useState(false);
+  const [selectedAppointmentTagIds, setSelectedAppointmentTagIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -750,6 +751,8 @@ export function LeadForm({
         lead: basePayload,
         appointment: appointmentPayload,
         custom_field_values: customFieldValuesPayload,
+        lead_tags: selectedTagIds,
+        appointment_tags: selectedAppointmentTagIds,
       }),
     });
 
@@ -786,9 +789,6 @@ export function LeadForm({
       appointment_id?: string | null;
     };
     const newId = result.lead_id;
-    if (newId && selectedTagIds.length > 0) {
-      await persistLeadTags(newId);
-    }
     // Vincula a conversa de origem (WhatsApp) ao lead recem-criado, quando
     // o form foi aberto a partir do painel de contato em /conversas.
     if (newId && linkChatId) {
@@ -1382,21 +1382,16 @@ export function LeadForm({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Profissional
-                  </label>
-                  <select
+                  <Select
+                    label="Profissional"
                     value={scheduleDentistId}
                     onChange={(e) => setScheduleDentistId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  >
-                    <option value="">Sem profissional</option>
-                    {dentists.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Sem profissional"
+                    options={dentists.map((d) => ({
+                      value: d.id,
+                      label: d.name,
+                    }))}
+                  />
                   {dentists.length === 0 && (
                     <p className="mt-1 text-[11px] text-gray-500">
                       Cadastre membros da equipe em Configuracoes &rsaquo;
@@ -1405,40 +1400,30 @@ export function LeadForm({
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Sala
-                  </label>
-                  <select
+                  <Select
+                    label="Sala"
                     value={scheduleRoomId}
                     onChange={(e) => setScheduleRoomId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  >
-                    <option value="">Sem sala</option>
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Sem sala"
+                    options={rooms.map((r) => ({
+                      value: r.id,
+                      label: r.name,
+                    }))}
+                  />
                 </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Serviço
-                </label>
-                <select
+                <Select
+                  label="Serviço"
                   value={scheduleProcedureId}
                   onChange={(e) => handleProcedureChange(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Nenhum</option>
-                  {procedures.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} - {p.default_duration_minutes}min
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Nenhum"
+                  options={procedures.map((p) => ({
+                    value: p.id,
+                    label: `${p.name} - ${p.default_duration_minutes}min`,
+                  }))}
+                />
               </div>
 
               <div>
@@ -1452,6 +1437,61 @@ export function LeadForm({
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   placeholder="Anotacoes para a agenda..."
                 />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+                  Tags do Agendamento (Sincroniza com Clinicorp)
+                </label>
+                {tags.length === 0 ? (
+                  <p className="text-xs text-gray-400">Nenhuma tag cadastrada.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.map((tag) => {
+                      const selected = selectedAppointmentTagIds.includes(tag.id);
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAppointmentTagIds((prev) =>
+                              prev.includes(tag.id)
+                                ? prev.filter((id) => id !== tag.id)
+                                : [...prev, tag.id]
+                            );
+                          }}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                            selected
+                              ? "border-transparent text-white shadow-sm"
+                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}
+                          style={selected ? { backgroundColor: tag.color } : undefined}
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full ${selected ? "bg-white/70" : ""}`}
+                            style={!selected ? { backgroundColor: tag.color } : undefined}
+                          />
+                          {tag.name}
+                          {selected && (
+                            <svg
+                              className="h-3 w-3"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={2.5}
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m4.5 12.75 6 6 9-13.5"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {agendaSettings.allow_overlap && (

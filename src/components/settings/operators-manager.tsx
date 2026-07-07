@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { HelpIcon } from "@/components/ui/help-icon";
+import { Select } from "@/components/ui/select";
 import { confirm } from "@/components/ui/confirm";
 import { ComingSoonOverlay } from "@/components/ui/coming-soon";
 import { MemberEditModal } from "./member-edit-modal";
@@ -541,19 +542,15 @@ export function OperatorsManager() {
                 />
               </div>
             )}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Permissão *
-              </label>
-              <select
+              <Select
+                label="Permissão *"
                 value={role}
                 onChange={(e) => setRole(e.target.value as "operator" | "admin")}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              >
-                <option value="operator">Operador</option>
-                <option value="admin">Administrador</option>
-              </select>
-            </div>
+                options={[
+                  { value: "operator", label: "Operador" },
+                  { value: "admin", label: "Administrador" },
+                ]}
+              />
           </div>
 
           <label className="flex items-start gap-2 text-sm text-gray-700">

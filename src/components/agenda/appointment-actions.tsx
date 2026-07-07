@@ -351,21 +351,68 @@ export function AppointmentActions({
                 <span>· {appointment.procedure_name}</span>
               )}
             </div>
+            {((appointment.lead_tags && appointment.lead_tags.length > 0) ||
+              (appointment.appointment_tags && appointment.appointment_tags.length > 0)) && (
+              <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2.5">
+                {appointment.lead_tags && appointment.lead_tags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Lead:</span>
+                    {appointment.lead_tags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${tag.color}15`,
+                          color: tag.color,
+                        }}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {appointment.appointment_tags && appointment.appointment_tags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Agendamento:</span>
+                    {appointment.appointment_tags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${tag.color}15`,
+                          color: tag.color,
+                        }}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {syncState && (
-              <div
-                className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${CLINICORP_SYNC_PILL[syncState]}`}
-                title={
-                  syncState === "syncing"
-                    ? "O agendamento está sendo enviado para a agenda da Clinicorp."
-                    : syncState === "synced"
-                      ? "Este agendamento já está na agenda da Clinicorp."
-                      : "Não foi possível enviar para a Clinicorp. Tente editar/remarcar."
-                }
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${CLINICORP_SYNC_DOT[syncState]}`}
-                />
-                {CLINICORP_SYNC_LABEL[syncState]}
+              <div className="mt-2">
+                <div
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${CLINICORP_SYNC_PILL[syncState]}`}
+                  title={
+                    syncState === "syncing"
+                      ? "O agendamento está sendo enviado para a agenda da Clinicorp."
+                      : syncState === "synced"
+                        ? "Este agendamento já está na agenda da Clinicorp."
+                        : "Não foi possível enviar para a Clinicorp. Veja o motivo abaixo."
+                  }
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${CLINICORP_SYNC_DOT[syncState]}`}
+                  />
+                  {CLINICORP_SYNC_LABEL[syncState]}
+                </div>
+                {syncState === "failed" && appointment.clinicorp_sync_error && (
+                  <p className="mt-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] leading-snug text-red-700">
+                    <span className="font-semibold">Motivo:</span>{" "}
+                    {appointment.clinicorp_sync_error}
+                  </p>
+                )}
               </div>
             )}
           </div>

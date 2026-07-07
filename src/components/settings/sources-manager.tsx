@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useCurrentCompany } from "@/hooks/use-current-company";
 import type { LeadSource } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 export function SourcesManager() {
   const { companyId, loading: companyLoading } = useCurrentCompany();
@@ -215,28 +216,26 @@ export function SourcesManager() {
                           Campanha Clinicorp
                         </span>
                         {clinicorpReady && campaigns ? (
-                          <select
+                          <Select
                             value={source.clinicorp_board_name ?? ""}
                             disabled={savingBoardId === source.id}
                             onChange={(e) =>
                               handleUpdateBoard(source.id, e.target.value)
                             }
-                            className="rounded border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
-                          >
-                            <option value="">— Não enviar —</option>
-                            {/* Mantem o valor salvo mesmo se nao estiver na lista atual */}
-                            {source.clinicorp_board_name &&
-                              !campaigns.includes(source.clinicorp_board_name) && (
-                                <option value={source.clinicorp_board_name}>
-                                  {source.clinicorp_board_name} (não encontrada)
-                                </option>
-                              )}
-                            {campaigns.map((c) => (
-                              <option key={c} value={c}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
+                            options={[
+                              { value: "", label: "— Não enviar —" },
+                              ...(source.clinicorp_board_name &&
+                              !campaigns.includes(source.clinicorp_board_name)
+                                ? [
+                                    {
+                                      value: source.clinicorp_board_name,
+                                      label: `${source.clinicorp_board_name} (não encontrada)`,
+                                    },
+                                  ]
+                                : []),
+                              ...campaigns.map((c) => ({ value: c, label: c })),
+                            ]}
+                          />
                         ) : (
                           <input
                             type="text"

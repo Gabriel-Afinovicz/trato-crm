@@ -7,6 +7,7 @@ import {
   STAGE_CATEGORY_LABEL,
   type StageCategory,
 } from "@/lib/types/database";
+import { Select } from "@/components/ui/select";
 
 export interface StageFormValues {
   name: string;
@@ -109,25 +110,18 @@ export function StageFormFields({
             entra nos KPIs.
           </HelpIcon>
         </label>
-        <select
+        <Select
           value={values.category ?? ""}
           onChange={(e) =>
             setCategory((e.target.value || null) as StageCategory | null)
           }
           disabled={disabled}
-          className={`w-full rounded-lg border px-3 py-1.5 text-sm ${
-            values.category
-              ? "border-gray-300"
-              : "border-amber-300 bg-amber-50 text-amber-900"
-          }`}
-        >
-          <option value="">Sem categoria (não conta na mini-dash)</option>
-          {STAGE_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {STAGE_CATEGORY_LABEL[c]}
-            </option>
-          ))}
-        </select>
+          placeholder="Sem categoria (não conta na mini-dash)"
+          options={STAGE_CATEGORIES.map((c) => ({
+            value: c,
+            label: STAGE_CATEGORY_LABEL[c],
+          }))}
+        />
       </div>
 
       <div className="flex items-center gap-4 text-xs">
