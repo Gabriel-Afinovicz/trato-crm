@@ -470,6 +470,17 @@ export function AppointmentModal(props: AppointmentModalProps) {
       // canOverride && confirmOverlap: segue para gravar (sobreposicao aceita).
     }
 
+    let mappedDentistId = dentistId;
+    if (dentistId) {
+      const selected = dentists.find((d) => d.id === dentistId);
+      if (selected && !selected.name.endsWith(" (CliniCorp)")) {
+        const match = dentists.find((d) => d.name === `${selected.name} (CliniCorp)`);
+        if (match) {
+          mappedDentistId = match.id;
+        }
+      }
+    }
+
     if (isEdit) {
       // Remarcacao na Clinicorp so quando muda horario ou profissional
       // (mudancas so de notas/sala/visibilidade nao alteram o slot la).
@@ -478,11 +489,11 @@ export function AppointmentModal(props: AppointmentModalProps) {
           new Date(props.appointment.starts_at).getTime() ||
         new Date(endsIso).getTime() !==
           new Date(props.appointment.ends_at).getTime() ||
-        (dentistId || null) !== (props.appointment.dentist_id ?? null);
+        (mappedDentistId || null) !== (props.appointment.dentist_id ?? null);
       const { error: updateErr } = await supabase
         .from("appointments")
         .update({
-          dentist_id: dentistId || null,
+          dentist_id: mappedDentistId || null,
           room_id: roomId || null,
           procedure_type_id: procedureId || null,
           starts_at: startsIso,
@@ -511,7 +522,7 @@ export function AppointmentModal(props: AppointmentModalProps) {
         .insert({
           company_id: companyId,
           lead_id: leadId,
-          dentist_id: dentistId || null,
+          dentist_id: mappedDentistId || null,
           room_id: roomId || null,
           procedure_type_id: procedureId || null,
           starts_at: startsIso,

@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import type { ProcedureType, Room, User } from "@/lib/types/database";
+import type { ProcedureType, Room, User, MessageTemplate } from "@/lib/types/database";
 import { AppointmentModal } from "@/components/agenda/appointment-modal";
 import { useCurrentCompany } from "@/hooks/use-current-company";
+import { sendWhatsAppMessage } from "@/lib/whatsapp/send-from-client";
 
 interface LeadHeaderProps {
   leadId: string;
@@ -18,6 +19,78 @@ interface LeadHeaderProps {
   // o botao "Agendar" e substituido por "Visualizar agendamento" — leva
   // direto pra agenda no dia do evento com o card de acoes ja aberto.
   nextAppointment?: { id: string; startsAt: string } | null;
+}
+
+interface ReminderDateParts {
+  diaSemana: string;
+  dataCalendario: string;
+  hora: string;
+  combinado: string;
+}
+
+function capitalizeFirst(s: string): string {
+  return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function reminderDateParts(iso: string): ReminderDateParts {
+  const d = new Date(iso);
+  const diaSemana = capitalizeFirst(
+    d.toLocaleDateString("pt-BR", { weekday: "long" })
+  );
+  const dataCalendario = d.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  const hora = d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const combinado = `${diaSemana}, ${dataCalendario} as ${hora}`;
+  return { diaSemana, dataCalendario, hora, combinado };
+}
+
+interface TemplateContext {
+  lead: string;
+  profissional: string;
+  data: string;
+  hora: string;
+  dia_semana: string;
+  data_calendario: string;
+  organizacao: string;
+  link: string;
+}
+
+function applyTemplate(body: string, ctx: TemplateContext) {
+  return body
+    .replaceAll("{{lead}}", ctx.lead)
+    .replaceAll("{{paciente}}", ctx.lead)
+    .replaceAll("{{profissional}}", ctx.profissional)
+    .replaceAll("{{dentista}}", ctx.profissional)
+    .replaceAll("{{data}}", ctx.data)
+    .replaceAll("{{hora}}", ctx.hora)
+    .replaceAll("{{dia_semana}}", ctx.dia_semana)
+    .replaceAll("{{data_calendario}}", ctx.data_calendario)
+    .replaceAll("{{organizacao}}", ctx.organizacao)
+    .replaceAll("{{clinica}}", ctx.organizacao)
+    .replaceAll("{{link}}", ctx.link);
+}
+
+function resolveAppBaseUrl(): string {
+  const env = process.env.NEXT_PUBLIC_PUBLIC_APP_URL?.trim();
+  if (env) {
+    return env.replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "";
+}
+
+function randomToken() {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -38,6 +111,7 @@ export function LeadHeader({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sendingConfirmation, setSendingConfirmation] = useState(false);
 
   const handleDelete = async () => {
     if (!confirmDelete || deleting) return;
@@ -64,6 +138,157 @@ export function LeadHeader({
       setShowDeleteModal(false);
     }
   };
+
+  const handleSendConfirmation = async () => {
+    if (!nextAppointment || sendingConfirmation) return;
+    setSendingConfirmation(true);
+    try {
+      const supabase = createClient();
+
+      // 1. Fetch appointment details with joins
+      const { data: appData, error: appErr } = await supabase
+        .from("appointments")
+        .select(`
+          id,
+          company_id,
+          lead_id,
+          starts_at,
+          status,
+          leads:lead_id(id, name, phone),
+          clinicorp_professionals:dentist_id(name),
+          rooms:room_id(name),
+          procedure_types:procedure_type_id(name)
+        `)
+        .eq("id", nextAppointment.id)
+        .single();
+
+      if (appErr || !appData) {
+        toast.error("Erro ao buscar dados do agendamento", {
+          description: appErr?.message || "Agendamento não encontrado.",
+        });
+        setSendingConfirmation(false);
+        return;
+      }
+
+      // Format appointment row
+      const appointment = appData as unknown as {
+        id: string;
+        company_id: string;
+        lead_id: string;
+        starts_at: string;
+        status: string;
+        leads: { id: string; name: string; phone: string | null } | null;
+        clinicorp_professionals: { name: string } | null;
+        rooms: { name: string } | null;
+        procedure_types: { name: string } | null;
+      };
+
+      const leadNameStr = appointment.leads?.name ?? leadName;
+      const leadPhoneStr = appointment.leads?.phone ?? "";
+      const dentistNameStr = appointment.clinicorp_professionals?.name ?? "o profissional responsável";
+
+      // 2. Fetch templates
+      const { data: templatesData } = await supabase
+        .from("message_templates")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("is_active", true);
+
+      const templates = (templatesData as unknown as MessageTemplate[]) ?? [];
+      const preferredTemplate =
+        templates.find((t) => t.kind === "confirmation") ||
+        templates.find((t) => t.kind === "reminder") ||
+        templates.find((t) => t.kind === "custom");
+
+      // 3. Ensure confirmation link
+      const { data: existing } = await supabase
+        .from("appointment_confirmations")
+        .select("token")
+        .eq("appointment_id", appointment.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let token: string | null = (existing as { token: string } | null)?.token ?? null;
+      if (!token) {
+        const newToken = randomToken();
+        const { error: insertErr } = await supabase
+          .from("appointment_confirmations")
+          .insert({
+            appointment_id: appointment.id,
+            company_id: appointment.company_id,
+            token: newToken,
+          });
+        if (insertErr) {
+          toast.error("Não foi possível gerar o link de confirmação", {
+            description: insertErr.message,
+          });
+          setSendingConfirmation(false);
+          return;
+        }
+        token = newToken;
+      }
+
+      const base = resolveAppBaseUrl();
+      const link = `${base}/${domain}/confirmar/${token}`;
+
+      // 4. Format Message Text
+      const parts = reminderDateParts(appointment.starts_at);
+      const ctx: TemplateContext = {
+        lead: leadNameStr,
+        profissional: dentistNameStr,
+        data: parts.combinado,
+        hora: parts.hora,
+        dia_semana: parts.diaSemana,
+        data_calendario: parts.dataCalendario,
+        organizacao: domain,
+        link,
+      };
+
+      const fallback = [
+        `Olá, ${ctx.lead}! Tudo bem?`,
+        "",
+        "Passando para confirmar seu atendimento:",
+        `📅 *Data:* ${ctx.dia_semana}, ${ctx.data_calendario}`,
+        `🕒 *Horário:* ${ctx.hora}`,
+        `👤 *Profissional:* ${ctx.profissional}`,
+        "",
+        "Para confirmar ou reagendar, acesse o link abaixo:",
+        ctx.link,
+      ].join("\n");
+
+      const body = preferredTemplate ? applyTemplate(preferredTemplate.body, ctx) : fallback;
+
+      // 5. Send message
+      const phoneClean = leadPhoneStr.replace(/\D+/g, "");
+      const result = await sendWhatsAppMessage({
+        text: body,
+        leadId: appointment.lead_id,
+        phone: phoneClean || undefined,
+        linkPreview: true,
+      });
+
+      if (result.kind === "sent") {
+        toast.success("Confirmação de agendamento enviada por WhatsApp!", {
+          action: {
+            label: "Ver conversa",
+            onClick: () => router.push(`/${domain}/conversas?chat=${result.chatId}`),
+          },
+        });
+      } else if (result.kind === "fallback") {
+        toast.info(result.message);
+      } else {
+        toast.error("Erro ao enviar mensagem", { description: result.message });
+      }
+    } catch (err) {
+      toast.error("Erro inesperado ao processar confirmação", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setSendingConfirmation(false);
+    }
+  };
+
   const [agendaResources, setAgendaResources] = useState<{
     rooms: Room[];
     procedures: ProcedureType[];
@@ -79,7 +304,7 @@ export function LeadHeader({
     let cancelled = false;
     const supabase = createClient();
     (async () => {
-      const [r, p, u] = await Promise.all([
+      const [r, p, u, sysUsers] = await Promise.all([
         supabase
           .from("rooms")
           .select("*")
@@ -98,14 +323,29 @@ export function LeadHeader({
           .eq("company_id", companyId)
           .eq("is_active", true)
           .order("name"),
+        supabase
+          .from("users")
+          .select("id, name, is_dentist")
+          .eq("company_id", companyId)
+          .eq("is_active", true)
+          .neq("role", "super_admin")
+          .order("name"),
       ]);
       if (cancelled) return;
+
+      const clinicorpProfs = (u.data as { id: string; name: string }[] | null) ?? [];
+      const sysDentists = (sysUsers.data as { id: string; name: string; is_dentist: boolean }[] | null) ?? [];
+      const combinedDentists = [
+        ...sysDentists.map(d => ({ id: d.id, name: d.name, is_dentist: d.is_dentist })),
+        ...clinicorpProfs
+          .filter(p => !sysDentists.some(d => d.id === p.id))
+          .map(p => ({ id: p.id, name: `${p.name} (CliniCorp)`, is_dentist: true }))
+      ].sort((a, b) => a.name.localeCompare(b.name));
+
       setAgendaResources({
         rooms: (r.data as unknown as Room[]) ?? [],
         procedures: (p.data as unknown as ProcedureType[]) ?? [],
-        dentists: ((u.data as { id: string; name: string }[] | null) ?? []).map(
-          (d) => ({ id: d.id, name: d.name, is_dentist: true })
-        ),
+        dentists: combinedDentists,
       });
     })();
     return () => {
@@ -129,16 +369,40 @@ export function LeadHeader({
 
       <div className="flex items-center gap-2">
         {nextAppointment ? (
-          <Link
-            href={`/${domain}/agenda?date=${nextAppointment.startsAt.slice(0, 10)}&appointment=${nextAppointment.id}`}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-            title="Ver detalhes do agendamento na tela de Agenda"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-            </svg>
-            Visualizar agendamento
-          </Link>
+          <>
+            <button
+              type="button"
+              disabled={sendingConfirmation}
+              onClick={handleSendConfirmation}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"
+              title="Enviar confirmação de agendamento por WhatsApp"
+            >
+              {sendingConfirmation ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden
+                >
+                  <path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 0 1 8.413 3.488 11.824 11.824 0 0 1 3.48 8.413c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.886a9.86 9.86 0 0 0 1.51 5.26l-.999 3.648 3.978-1.609zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.149-.173.198-.297.298-.495.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01a1.097 1.097 0 0 0-.793.371c-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.247-.694.247-1.289.173-1.413z" />
+                </svg>
+              )}
+              {sendingConfirmation ? "Enviando..." : "Enviar confirmação"}
+            </button>
+            <Link
+              href={`/${domain}/agenda?date=${nextAppointment.startsAt.slice(0, 10)}&appointment=${nextAppointment.id}`}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+              title="Ver detalhes do agendamento na tela de Agenda"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+              </svg>
+              Visualizar agendamento
+            </Link>
+          </>
         ) : (
           <button
             type="button"

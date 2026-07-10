@@ -390,10 +390,21 @@ export function AgendaContent({
         ? target.resourceId ?? null
         : appointment.room_id;
 
+    let mappedDentistId = newDentistId;
+    if (newDentistId) {
+      const selected = dentists.find((d) => d.id === newDentistId);
+      if (selected && !selected.name.endsWith(" (CliniCorp)")) {
+        const match = dentists.find((d) => d.name === `${selected.name} (CliniCorp)`);
+        if (match) {
+          mappedDentistId = match.id;
+        }
+      }
+    }
+
     const { data: conflict, error: conflictErr } = await supabase.rpc(
       "check_appointment_conflict",
       {
-        p_dentist_id: newDentistId,
+        p_dentist_id: mappedDentistId,
         p_room_id: newRoomId,
         p_starts_at: newStart.toISOString(),
         p_ends_at: newEnd.toISOString(),
@@ -417,7 +428,7 @@ export function AgendaContent({
       .update({
         starts_at: newStart.toISOString(),
         ends_at: newEnd.toISOString(),
-        dentist_id: newDentistId,
+        dentist_id: mappedDentistId,
         room_id: newRoomId,
       })
       .eq("id", appointment.id);

@@ -24,6 +24,7 @@ export function TagsManager() {
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
   const [operatingId, setOperatingId] = useState<string | null>(null);
+  const [clinicorpEnabled, setClinicorpEnabled] = useState(false);
 
   async function fetchTags() {
     if (!companyId) return;
@@ -37,14 +38,29 @@ export function TagsManager() {
     setLoading(false);
   }
 
+  async function checkClinicorp() {
+    if (!companyId) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("company_integrations")
+      .select("status")
+      .eq("company_id", companyId)
+      .eq("provider", "clinicorp")
+      .maybeSingle();
+    const row = data as { status?: string } | null;
+    setClinicorpEnabled(!!row && row.status !== "disabled");
+  }
+
   useEffect(() => {
     if (companyLoading) return;
     if (!companyId) {
       setTags([]);
       setLoading(false);
+      setClinicorpEnabled(false);
       return;
     }
     fetchTags();
+    checkClinicorp();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyLoading, companyId]);
 
@@ -119,6 +135,30 @@ export function TagsManager() {
 
   return (
     <div className="space-y-6">
+      {clinicorpEnabled && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm flex items-start gap-3 animate-fade-in">
+          <svg
+            className="h-5 w-5 text-amber-600 shrink-0 mt-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth="2"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+          <div>
+            <h4 className="font-semibold text-amber-900">Aviso de Sincronização (CliniCorp Ativa)</h4>
+            <p className="mt-1 text-xs text-amber-800 leading-relaxed">
+              As tags cadastradas, alteradas ou excluídas diretamente no CRM <strong>não serão sincronizadas com a CliniCorp</strong>, pois a integração deles não possui suporte para o envio destas etiquetas. O uso de tags no CRM é de controle interno para a gestão do seu pipeline e automações locais.
+            </p>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}

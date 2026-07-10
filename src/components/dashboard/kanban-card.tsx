@@ -5,6 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { KanbanLead } from "@/lib/supabase/dashboard-data";
 import type { PipelineStage } from "@/lib/types/database";
+import { formatPhoneDisplay } from "@/lib/evolution/phone";
 
 interface KanbanCardProps {
   lead: KanbanLead;
@@ -212,7 +213,7 @@ export function KanbanCard({
         {(lead.phone || lead.email) && (
           <span className="truncate">
             {age !== null ? "· " : ""}
-            {lead.phone ?? lead.email}
+            {lead.phone ? formatPhoneDisplay(lead.phone) : lead.email}
           </span>
         )}
       </div>

@@ -218,16 +218,47 @@ export async function GET(
       evoPayload.fileName ||
       buildFallbackFilename(messageRow.media_type, mimetype, id);
 
-    return new NextResponse(buffer as unknown as BodyInit, {
+    const range = req.headers.get("range");
+    const totalSize = buffer.length;
+    const contentDisposition = `${
+      isDownload ? "attachment" : "inline"
+    }; filename="${escapeContentDispositionFilename(filename)}"`;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+      if (start >= 0 && end < totalSize && start <= end) {
+        const chunk = buffer.subarray(start, end + 1);
+        return new Response(chunk as unknown as BodyInit, {
+          status: 206,
+          headers: {
+            "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+            "Accept-Ranges": "bytes",
+            "Content-Length": String(chunk.length),
+            "Content-Type": mimetype,
+            "Content-Disposition": contentDisposition,
+            "Cache-Control": "private, max-age=3600",
+          },
+        });
+      } else {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            "Content-Range": `bytes */${totalSize}`,
+          },
+        });
+      }
+    }
+
+    return new Response(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
+        "Content-Length": String(totalSize),
         "Content-Type": mimetype,
-        "Content-Disposition": `${
-          isDownload ? "attachment" : "inline"
-        }; filename="${escapeContentDispositionFilename(filename)}"`,
-        // Sticker/imagem identificadas pelo evolution_message_id sao
-        // imutaveis no cache Baileys. 1h de cache no navegador evita
-        // refetches durante a navegacao normal do operador no chat.
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": contentDisposition,
         "Cache-Control": "private, max-age=3600",
       },
     });

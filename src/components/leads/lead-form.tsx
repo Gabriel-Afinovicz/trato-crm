@@ -139,7 +139,10 @@ function addMinutesIso(iso: string, minutes: number) {
 }
 
 function formatPhone(value: string): string {
-  const digits = value.replace(/\D/g, "");
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("55") && digits.length >= 12) {
+    digits = digits.slice(2);
+  }
   if (digits.length <= 2) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   if (digits.length <= 10) {
@@ -295,6 +298,7 @@ export function LeadForm({
         operatorsRes,
         tagsRes,
         leadTagsRes,
+        clinicorpProfessionalsRes,
       ] = await Promise.all([
         supabase
           .from("lead_sources")
@@ -360,6 +364,12 @@ export function LeadForm({
               .select("tag_id")
               .eq("lead_id", leadId)
           : Promise.resolve({ data: [] as { tag_id: string }[] }),
+        supabase
+          .from("clinicorp_professionals")
+          .select("id, name")
+          .eq("company_id", companyId!)
+          .eq("is_active", true)
+          .order("name"),
       ]);
 
       if (sourcesRes.data)
@@ -393,18 +403,28 @@ export function LeadForm({
       });
       setCustomValues(valuesMap);
 
-      setDentists(
-        (dentistsRes.data as
-          | Pick<User, "id" | "name" | "is_dentist">[]
-          | null) ?? []
-      );
+      const clinicorpProfs = (clinicorpProfessionalsRes.data as { id: string; name: string }[] | null) ?? [];
+
+      const sysDentists = (dentistsRes.data as { id: string; name: string; is_dentist: boolean }[] | null) ?? [];
+      const combinedDentists = [
+        ...sysDentists.map(d => ({ id: d.id, name: d.name, is_dentist: d.is_dentist })),
+        ...clinicorpProfs
+          .filter(p => !sysDentists.some(d => d.id === p.id))
+          .map(p => ({ id: p.id, name: `${p.name} (CliniCorp)`, is_dentist: true }))
+      ].sort((a, b) => a.name.localeCompare(b.name));
+      setDentists(combinedDentists);
+
       setProcedures((proceduresRes.data as ProcedureType[] | null) ?? []);
       setRooms((roomsRes.data as Room[] | null) ?? []);
-      setOperators(
-        (operatorsRes.data as
-          | Pick<User, "id" | "name" | "role">[]
-          | null) ?? []
-      );
+
+      const sysOperators = (operatorsRes.data as { id: string; name: string; role: any }[] | null) ?? [];
+      const combinedOperators = [
+        ...sysOperators.map(o => ({ id: o.id, name: o.name, role: o.role })),
+        ...clinicorpProfs
+          .filter(p => !sysOperators.some(o => o.id === p.id))
+          .map(p => ({ id: p.id, name: `${p.name} (CliniCorp)`, role: "operator" }))
+      ].sort((a, b) => a.name.localeCompare(b.name)) as Pick<User, "id" | "name" | "role">[];
+      setOperators(combinedOperators);
 
       setTags((tagsRes.data as unknown as Tag[] | null) ?? []);
       const assigned =
@@ -725,8 +745,19 @@ export function LeadForm({
       }
       const startsIso = new Date(scheduleStartsAt).toISOString();
       const endsIso = addMinutesIso(startsIso, scheduleDuration);
+      let mappedDentistId = scheduleDentistId;
+      if (scheduleDentistId) {
+        const selected = dentists.find((d) => d.id === scheduleDentistId);
+        if (selected && !selected.name.endsWith(" (CliniCorp)")) {
+          const match = dentists.find((d) => d.name === `${selected.name} (CliniCorp)`);
+          if (match) {
+            mappedDentistId = match.id;
+          }
+        }
+      }
+
       appointmentPayload = {
-        dentist_id: scheduleDentistId || null,
+        dentist_id: mappedDentistId || null,
         room_id: scheduleRoomId || null,
         procedure_type_id: scheduleProcedureId || null,
         starts_at: startsIso,

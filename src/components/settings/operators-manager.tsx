@@ -775,7 +775,8 @@ export function OperatorsManager() {
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-max">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
@@ -972,6 +973,7 @@ export function OperatorsManager() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </section>

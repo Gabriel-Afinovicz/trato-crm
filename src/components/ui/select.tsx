@@ -26,6 +26,20 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "onC
   containerClassName?: string;
 }
 
+function renderOptionLabel(label: string) {
+  const suffix = " (CliniCorp)";
+  if (label.endsWith(suffix)) {
+    const main = label.slice(0, -suffix.length);
+    return (
+      <span className="inline-flex items-center gap-1.5 truncate">
+        <span className="truncate">{main}</span>
+        <span className="text-gray-400 font-normal shrink-0 text-xs">(CliniCorp)</span>
+      </span>
+    );
+  }
+  return <span className="truncate">{label}</span>;
+}
+
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   (
     {
@@ -212,11 +226,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
               ${className}`}
           >
             <span
-              className={`truncate ${
+              className={`truncate w-full flex items-center ${
                 selectedOption ? "text-gray-900" : "text-gray-400"
               }`}
             >
-              {displayLabel}
+              {renderOptionLabel(displayLabel)}
             </span>
             <svg
               className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${
@@ -296,7 +310,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
                         ${isActive ? "bg-gray-100" : "hover:bg-gray-50"}`}
                       onClick={() => handleSelect(opt.value)}
                     >
-                      <span className="truncate">{opt.label}</span>
+                      <span className="truncate w-full flex items-center">
+                        {renderOptionLabel(opt.label)}
+                      </span>
                       {isSelected && (
                         <svg
                           className="h-4 w-4 shrink-0 text-blue-600"

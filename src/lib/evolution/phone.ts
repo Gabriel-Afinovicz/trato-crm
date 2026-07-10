@@ -151,3 +151,37 @@ export function siblingJid(jid: string | null | undefined): string | null {
   }
   return null;
 }
+
+export function formatPhoneDisplay(phone: string | null | undefined): string {
+  if (!phone) return "";
+  
+  if (phone.startsWith("+") && !phone.startsWith("+55")) {
+    return phone;
+  }
+
+  const digits = phone.replace(/\D/g, "");
+  
+  if (digits.startsWith("55") && digits.length >= 10) {
+    const ddi = "+55";
+    const ddd = digits.slice(2, 4);
+    const rest = digits.slice(4);
+    if (rest.length === 9) {
+      return `${ddi} (${ddd}) ${rest.slice(0, 1)} ${rest.slice(1, 5)}-${rest.slice(5)}`;
+    } else {
+      return `${ddi} (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+    }
+  }
+
+  if (digits.length === 10 || digits.length === 11) {
+    const ddi = "+55";
+    const ddd = digits.slice(0, 2);
+    const rest = digits.slice(2);
+    if (rest.length === 9) {
+      return `${ddi} (${ddd}) ${rest.slice(0, 1)} ${rest.slice(1, 5)}-${rest.slice(5)}`;
+    } else {
+      return `${ddi} (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+    }
+  }
+
+  return phone.startsWith("+") ? phone : `+${phone}`;
+}

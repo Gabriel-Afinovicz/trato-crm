@@ -35,6 +35,7 @@ import { defaultMonthRangeLocal } from "@/lib/utils/date-range";
 import { KanbanLeadEditModal } from "@/components/dashboard/kanban-lead-edit-modal";
 import { LostReasonModal } from "@/components/dashboard/lost-reason-modal";
 import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
+import { formatPhoneDisplay } from "@/lib/evolution/phone";
 import { confirm } from "@/components/ui/confirm";
 import { createClient } from "@/lib/supabase/client";
 import { moveLeadStage } from "@/lib/leads/move-stage";
@@ -670,7 +671,7 @@ export function LeadTable({ domain }: LeadTableProps) {
                             <div className="flex flex-col">
                               {lead.phone && (
                                 <span className="inline-flex items-center gap-2 text-sm">
-                                  {lead.phone}
+                                  {formatPhoneDisplay(lead.phone)}
                                   <WhatsAppLeadLink
                                     domain={domain}
                                     phone={lead.phone}

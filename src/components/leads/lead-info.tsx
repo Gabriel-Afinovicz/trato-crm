@@ -1,6 +1,7 @@
 import type { LeadDetailed } from "@/lib/types/database";
 import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
 import { LeadStageControl } from "@/components/leads/lead-stage-control";
+import { formatPhoneDisplay } from "@/lib/evolution/phone";
 
 interface LeadInfoProps {
   lead: LeadDetailed;
@@ -102,7 +103,7 @@ export function LeadInfo({ lead, domain }: LeadInfoProps) {
             </span>
             {lead.phone ? (
               <span className="inline-flex items-center gap-2 text-sm text-gray-800">
-                {lead.phone}
+                {formatPhoneDisplay(lead.phone)}
                 <WhatsAppLeadLink
                   domain={domain}
                   phone={lead.phone}

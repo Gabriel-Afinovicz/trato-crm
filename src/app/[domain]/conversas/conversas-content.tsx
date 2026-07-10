@@ -3891,6 +3891,7 @@ function MessageAudio({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressBarRef = useRef<HTMLDivElement | null>(null);
   const durationFixedRef = useRef(false);
+  const isFixingDurationRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -3914,18 +3915,21 @@ function MessageAudio({
       // o seek, voltamos ao inicio e o `durationchange` traz o valor.
       if (!durationFixedRef.current) {
         durationFixedRef.current = true;
+        isFixingDurationRef.current = true;
         const onceDuration = () => {
           if (!a) return;
           if (Number.isFinite(a.duration) && a.duration > 0) {
             setDuration(a.duration);
             a.currentTime = 0;
           }
+          isFixingDurationRef.current = false;
           a.removeEventListener("durationchange", onceDuration);
         };
         a.addEventListener("durationchange", onceDuration);
         try {
           a.currentTime = 1e10;
         } catch {
+          isFixingDurationRef.current = false;
           // alguns browsers lancam se currentTime > seekable range; ignora.
         }
       }
@@ -3961,6 +3965,17 @@ function MessageAudio({
       }
     }
     function onError() {
+      if (isFixingDurationRef.current) {
+        isFixingDurationRef.current = false;
+        if (a) {
+          try {
+            a.currentTime = 0;
+          } catch {
+            /* noop */
+          }
+        }
+        return;
+      }
       setErrored(true);
       setPlaying(false);
     }

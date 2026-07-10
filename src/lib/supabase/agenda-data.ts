@@ -14,7 +14,7 @@ import type {
 
 export const getAgendaResources = cache(async (companyId: string) => {
   const supabase = await createClient();
-  const [roomsRes, proceduresRes, dentistsRes, hoursRes, templatesRes] =
+  const [roomsRes, proceduresRes, dentistsRes, hoursRes, templatesRes, sysUsersRes] =
     await Promise.all([
       supabase
         .from("rooms")
@@ -45,15 +45,24 @@ export const getAgendaResources = cache(async (companyId: string) => {
         .eq("company_id", companyId)
         .eq("is_active", true)
         .order("name"),
+      supabase
+        .from("users")
+        .select("id, name, is_dentist")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .neq("role", "super_admin")
+        .order("name"),
     ]);
 
-  // "Profissional" do agendamento = profissional importado da Clinicorp
-  // (tabela clinicorp_professionals), nao mais usuarios do sistema. Mantemos
-  // o shape { id, name, is_dentist } por compatibilidade com os componentes
-  // da agenda (is_dentist fica sempre true aqui).
-  const dentists = (
-    (dentistsRes.data as { id: string; name: string }[] | null) ?? []
-  ).map((d) => ({ id: d.id, name: d.name, is_dentist: true }));
+  const clinicorpProfs = (dentistsRes.data as { id: string; name: string }[] | null) ?? [];
+  const sysDentists = (sysUsersRes.data as { id: string; name: string; is_dentist: boolean }[] | null) ?? [];
+  
+  const dentists = [
+    ...sysDentists.map(d => ({ id: d.id, name: d.name, is_dentist: d.is_dentist })),
+    ...clinicorpProfs
+      .filter(p => !sysDentists.some(d => d.id === p.id))
+      .map(p => ({ id: p.id, name: `${p.name} (CliniCorp)`, is_dentist: true }))
+  ].sort((a, b) => a.name.localeCompare(b.name));
   return {
     rooms: (roomsRes.data as unknown as Room[]) ?? [],
     procedures: (proceduresRes.data as unknown as ProcedureType[]) ?? [],

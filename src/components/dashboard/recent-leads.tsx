@@ -10,6 +10,7 @@ import { formatDateInTz } from "@/lib/utils/timezone";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { StageBadge } from "@/components/dashboard/stage-badge";
 import type { Lead, PipelineStage } from "@/lib/types/database";
+import { formatPhoneDisplay } from "@/lib/evolution/phone";
 
 interface RecentLeadsProps {
   domain: string;
@@ -132,7 +133,7 @@ export function RecentLeads({ domain, initialLeads, stages }: RecentLeadsProps) 
                   <td className="px-6 py-3 text-gray-600">
                     <div className="flex flex-col">
                       {lead.phone && (
-                        <span className="text-sm">{lead.phone}</span>
+                        <span className="text-sm">{formatPhoneDisplay(lead.phone)}</span>
                       )}
                       {lead.email && (
                         <span className="text-xs text-gray-400">{lead.email}</span>

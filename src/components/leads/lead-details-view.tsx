@@ -1,6 +1,7 @@
 "use client";
 
 import { WhatsAppLeadLink } from "@/components/whatsapp/whatsapp-lead-link";
+import { formatPhoneDisplay } from "@/lib/evolution/phone";
 import type {
   CustomField,
   CustomFieldValue,
@@ -72,7 +73,7 @@ export function LeadDetailsView({
             </span>
             {detailed.phone ? (
               <span className="inline-flex items-center gap-2 text-sm text-gray-800">
-                {detailed.phone}
+                {formatPhoneDisplay(detailed.phone)}
                 {showWhatsAppLink && (
                   <WhatsAppLeadLink
                     domain={domain}

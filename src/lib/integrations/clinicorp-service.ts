@@ -438,13 +438,34 @@ async function loadAppointmentForSync(
   const timezone =
     (companyRow?.timezone as string | null | undefined) || DEFAULT_CLINIC_TIMEZONE;
 
+  let dentistPersonId: string | null = prof?.clinicorp_person_id ?? null;
+  if (!dentistPersonId && data.dentist_id) {
+    const { data: userRow } = await admin
+      .from("users")
+      .select("name")
+      .eq("id", data.dentist_id)
+      .maybeSingle();
+    if (userRow?.name) {
+      const { data: profMatch } = await admin
+        .from("clinicorp_professionals")
+        .select("clinicorp_person_id")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .ilike("name", userRow.name.trim())
+        .maybeSingle();
+      if (profMatch) {
+        dentistPersonId = profMatch.clinicorp_person_id;
+      }
+    }
+  }
+
   return {
     appt: {
       id: data.id as string,
       starts_at: data.starts_at as string,
       ends_at: data.ends_at as string,
       dentist_id: (data.dentist_id as string | null) ?? null,
-      dentist_person_id: prof?.clinicorp_person_id ?? null,
+      dentist_person_id: dentistPersonId,
       room_id: (data.room_id as string | null) ?? null,
       clinicorp_appointment_id:
         (data.clinicorp_appointment_id as string | null) ?? null,
