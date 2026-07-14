@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       // confirmar a remocao.
       await evolution.forceDeleteInstance(instanceName);
 
-      let created: CreateInstanceResponse;
+      let created: CreateInstanceResponse | null = null;
       try {
         created = await evolution.createInstance(instanceName);
       } catch (createErr) {
@@ -90,15 +90,34 @@ export async function POST(req: NextRequest) {
         const status = (createErr as { status?: number }).status;
         if (status === 403) {
           await evolution.forceDeleteInstance(instanceName);
-          created = await evolution.createInstance(instanceName);
+          try {
+            created = await evolution.createInstance(instanceName);
+          } catch (retryErr) {
+            // A instancia orfa nao pode ser removida (sessao presa em
+            // estado que o delete da Evolution recusa). Em vez de falhar a
+            // conexao, reaproveitamos a instancia existente: o `connect()`
+            // mais abaixo usa a apikey global e ainda consegue emitir o QR.
+            const retryStatus = (retryErr as { status?: number }).status;
+            if (retryStatus !== 403) throw retryErr;
+            console.warn(
+              "[whatsapp/connect] instancia em uso e nao removivel; reaproveitando existente",
+              { instanceName }
+            );
+            created = null;
+          }
         } else {
           throw createErr;
         }
       }
-      const hashApiKey =
-        typeof created.hash === "string"
+
+      // `created` NULL = caimos no fallback de "instancia em uso": nao ha
+      // token novo (a apikey global cobre connect/status), so garantimos a
+      // row em `connecting` e seguimos para o connect() que busca o QR.
+      const hashApiKey = created
+        ? typeof created.hash === "string"
           ? created.hash
-          : created.hash?.apikey ?? null;
+          : created.hash?.apikey ?? null
+        : evolutionToken;
       evolutionToken = hashApiKey;
 
       if (existingRow) {
@@ -139,7 +158,7 @@ export async function POST(req: NextRequest) {
         instanceId = (inserted as { id: string }).id;
       }
 
-      const initialQr = created.qrcode?.base64 ?? null;
+      const initialQr = created?.qrcode?.base64 ?? null;
       if (initialQr) {
         return NextResponse.json({
           instanceId,
@@ -171,7 +190,14 @@ export async function POST(req: NextRequest) {
       pairingCode: connectRes.pairingCode ?? connectRes.code ?? null,
     });
   } catch (err) {
-    console.error("[whatsapp/connect] upstream error", err);
+    // Log tecnico detalhado (status HTTP + motivo real da Evolution) para
+    // diagnostico interno. Ao usuario devolvemos apenas a copia amigavel.
+    const upstreamStatus = (err as { status?: number }).status;
+    console.error("[whatsapp/connect] upstream error", {
+      instanceName,
+      status: upstreamStatus,
+      reason: err instanceof Error ? err.message : String(err),
+    });
     const f = friendlyEvolutionError(err, "connect");
     return NextResponse.json({ error: f.message }, { status: f.status });
   }

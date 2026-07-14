@@ -33,6 +33,41 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Extrai a mensagem de erro *real* de uma resposta de falha da Evolution.
+ *
+ * A Evolution v2 aninha o motivo util em `response.message` (quase sempre
+ * um array de strings, ex.: `["The instance \"x\" is already in use"]`),
+ * enquanto o topo traz apenas o rotulo generico do HTTP em `error`
+ * (ex.: "Forbidden"). Ler so `message`/`error` do topo descartava a causa
+ * — deixando os logs com "Evolution API: Forbidden" sem pistas do porque.
+ * Aqui priorizamos o detalhe aninhado e caimos para os campos genericos.
+ */
+function extractEvolutionErrorMessage(
+  payload: unknown,
+  status: number
+): string {
+  if (payload && typeof payload === "object") {
+    const p = payload as {
+      message?: unknown;
+      error?: unknown;
+      response?: { message?: unknown } | null;
+    };
+    const nested = p.response?.message;
+    const detail =
+      (Array.isArray(nested)
+        ? nested.filter(Boolean).join("; ")
+        : typeof nested === "string"
+          ? nested
+          : "") ||
+      (typeof p.message === "string" ? p.message : "") ||
+      (typeof p.error === "string" ? p.error : "");
+    if (detail) return detail;
+  }
+  if (typeof payload === "string" && payload.trim()) return payload.trim();
+  return `Evolution API ${status}`;
+}
+
 async function request<T>(
   path: string,
   init: RequestInit & { instanceToken?: string } = {}
@@ -58,10 +93,7 @@ async function request<T>(
     }
   }
   if (!res.ok) {
-    const message =
-      (payload as { message?: string; error?: string } | null)?.message ??
-      (payload as { error?: string } | null)?.error ??
-      `Evolution API ${res.status}`;
+    const message = extractEvolutionErrorMessage(payload, res.status);
     const err = new Error(`Evolution API: ${message}`);
     (err as Error & { status?: number; payload?: unknown }).status = res.status;
     (err as Error & { status?: number; payload?: unknown }).payload = payload;
