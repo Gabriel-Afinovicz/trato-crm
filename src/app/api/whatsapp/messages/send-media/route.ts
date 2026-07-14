@@ -122,21 +122,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const companyId = profileRow.company_id;
   const supabaseAdmin = createAdminClient();
 
-  const { data: chatData } = await supabaseAdmin
+  // Autoriza pelo ACESSO ao chat (via RLS) e deriva a empresa do proprio chat,
+  // e nao do profile.company_id. Suporta super_admin operando o dominio de um
+  // cliente sem falsos "Chat nao encontrado"; operador segue restrito pelo RLS.
+  const { data: chatData } = await supabase
     .from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid, lead_id")
     .eq("id", chatId)
-    .single();
+    .maybeSingle();
   const chatRow = chatData as ChatRow | null;
-  if (!chatRow || chatRow.company_id !== companyId) {
+  if (!chatRow) {
     return NextResponse.json(
       { error: "Chat nao encontrado." },
       { status: 404 }
     );
   }
+  const companyId = chatRow.company_id;
 
   const { data: instanceData } = await supabaseAdmin
     .from("whatsapp_instances")

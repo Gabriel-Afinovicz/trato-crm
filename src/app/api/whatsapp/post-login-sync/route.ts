@@ -27,14 +27,18 @@ import {
 // e longo o bastante para absorver o cluster de logins simultaneos.
 const COOLDOWN_MS = 60_000;
 
-// Quantos chats mais recentes recebem pull de mensagens. Cobre o caso comum
-// (operador retomar conversas das ultimas horas) sem virar rajada longa.
-const TOP_CHATS_TO_REFRESH = 20;
-// Mensagens por chat; suficiente para o operador ter contexto recente sem
-// puxar historico antigo. /load-history continua disponivel sob demanda.
+// Quantos chats recebem pull de mensagens no catch-up de login. Casa com a
+// pagina da lista de conversas (PAGE_SIZE = 30): so pre-carregamos as
+// mensagens dos 30 chats mais recentes. Se o operador rolar a lista e pedir
+// "carregar mais 30 contatos", as mensagens desses proximos chats sao
+// buscadas sob demanda ao abrir cada conversa — evitando puxar de uma vez um
+// monte de chats que talvez nem sejam abertos.
+const TOP_CHATS_TO_REFRESH = 30;
+// Mensagens por chat. Casa com a pagina de mensagens da conversa (20): traz as
+// 20 mais recentes; historico anterior vem pelo "carregar mais 20" sob demanda.
 const MESSAGES_PER_CHAT = 20;
 // Concorrencia para chamadas paralelas a Evolution. 5 distribui o tempo total
-// (~2s para 20 chats) sem virar rajada que possa sinalizar o numero.
+// (~2s para 30 chats) sem virar rajada que possa sinalizar o numero.
 const EVOLUTION_CONCURRENCY = 5;
 
 interface PostLoginSyncResponse {
@@ -334,7 +338,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<PostLoginSync
 }
 
 async function handle(
-  _req: NextRequest,
+  req: NextRequest,
   started: number
 ): Promise<NextResponse<PostLoginSyncResponse>> {
   if (!evolution.isConfigured()) {
@@ -364,8 +368,30 @@ async function handle(
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
+  // Empresa efetiva: se o cliente informou o dominio (aba Conversas / sync de
+  // layout), resolvemos por ele via RLS — assim um super_admin sincroniza a
+  // empresa do dominio que esta operando, e nao a propria. Sem dominio (ou se
+  // o dominio nao resolver via RLS), usamos a empresa do proprio usuario, que
+  // e o caso do operador no seu tenant.
+  let companyId = profileRow.company_id;
+  let bodyDomain: string | null = null;
+  try {
+    const parsed = (await req.json()) as { domain?: string } | null;
+    bodyDomain = parsed?.domain?.trim() || null;
+  } catch {
+    bodyDomain = null;
+  }
+  if (bodyDomain) {
+    const { data: comp } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("domain", bodyDomain)
+      .maybeSingle();
+    const compRow = comp as { id: string } | null;
+    if (compRow) companyId = compRow.id;
+  }
+
   const supabaseAdmin = createAdminClient();
-  const companyId = profileRow.company_id;
 
   const { data: instanceData } = await supabaseAdmin
     .from("whatsapp_instances")

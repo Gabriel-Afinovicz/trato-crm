@@ -16,6 +16,13 @@ export interface SendArgs {
   /** Telefone manual (com ou sem mascara). */
   phone?: string;
   /**
+   * Dominio da empresa em uso. Necessario apenas no caminho de telefone
+   * avulso (sem chatId/leadId) para que o servidor resolva a empresa correta
+   * quando quem envia e um super_admin (empresa de perfil != empresa do
+   * dominio). Nos caminhos chatId/leadId a empresa vem do proprio recurso.
+   */
+  domain?: string;
+  /**
    * Solicita preview de link na mensagem (Evolution faz scraping da URL).
    * Util em lembretes/confirmacoes para que o link vire tocavel no app.
    */
@@ -36,7 +43,7 @@ function openWaMeFallback(phone: string | null | undefined, text: string) {
 }
 
 export async function sendWhatsAppMessage(args: SendArgs): Promise<SendResult> {
-  const { text, chatId, leadId, phone, linkPreview } = args;
+  const { text, chatId, leadId, phone, domain, linkPreview } = args;
   if (!text.trim()) {
     return { kind: "error", message: "Mensagem vazia." };
   }
@@ -46,7 +53,7 @@ export async function sendWhatsAppMessage(args: SendArgs): Promise<SendResult> {
     res = await fetch("/api/whatsapp/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, chatId, leadId, phone, linkPreview }),
+      body: JSON.stringify({ text, chatId, leadId, phone, domain, linkPreview }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erro de rede";

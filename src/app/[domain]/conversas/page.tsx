@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAuthSession, getDomainCompany } from "@/lib/supabase/cached-data";
 import { createClient } from "@/lib/supabase/server";
 import type { WhatsAppChat, WhatsAppInstance } from "@/lib/types/database";
-import { jidToPhone, phoneToJid } from "@/lib/evolution/phone";
+import { jidToPhone, phoneToJid, siblingJid } from "@/lib/evolution/phone";
 import { ConversasContent } from "./conversas-content";
 import { WhatsAppConnectLoader } from "@/components/whatsapp/whatsapp-connect-loader";
 import { WhatsAppLoginSyncGate } from "@/components/whatsapp/whatsapp-login-sync-gate";
@@ -167,16 +167,25 @@ export default async function ConversasPage({
       );
     }
 
-    // Procura chat existente com mesmo remote_jid
-    const { data: existing } = await supabase
+    // Procura chat existente pelo remote_jid. Para celulares BR o WhatsApp
+    // pode ter gravado a conversa com ou sem o nono digito (o `phoneToJid`
+    // do lead sempre gera a forma canonica de 13 digitos, mas o webhook/sync
+    // pode ter criado o chat na forma "irma" de 12 digitos). Casamos as duas
+    // formas para nao abrir/criar um chat duplicado orfao — mesma logica que
+    // o webhook ja usa via `siblingJid`.
+    const candidateJids = [targetJid, siblingJid(targetJid)].filter(
+      (j): j is string => Boolean(j)
+    );
+    const { data: existingRows } = await supabase
       .from("whatsapp_chats")
-      .select("id, lead_id")
+      .select("id, lead_id, last_message_at")
       .eq("company_id", company.id)
-      .eq("remote_jid", targetJid)
-      .maybeSingle();
-    const existingChat = existing as
-      | { id: string; lead_id: string | null }
-      | null;
+      .in("remote_jid", candidateJids)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1);
+    const existingChat = (existingRows as
+      | { id: string; lead_id: string | null; last_message_at: string | null }[]
+      | null)?.[0] ?? null;
 
     if (existingChat) {
       // Se chat ja existia mas nao tinha vinculo com lead, aproveita para

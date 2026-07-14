@@ -89,7 +89,11 @@ export async function GET(
     }
 
     const supabaseAdmin = createAdminClient();
-    const { data: messageData } = await supabaseAdmin
+
+    // Autoriza pelo ACESSO a mensagem (via RLS) e deriva a empresa dela — e
+    // nao do profile.company_id. Suporta super_admin operando o dominio de um
+    // cliente (a midia carrega normalmente); operador segue restrito pelo RLS.
+    const { data: messageData } = await supabase
       .from("whatsapp_messages")
       .select(
         "id, company_id, chat_id, evolution_message_id, media_type, media_mime_type"
@@ -97,12 +101,13 @@ export async function GET(
       .eq("id", id)
       .maybeSingle();
     const messageRow = messageData as MessageRow | null;
-    if (!messageRow || messageRow.company_id !== profileRow.company_id) {
+    if (!messageRow) {
       return NextResponse.json(
         { error: "Mensagem nao encontrada." },
         { status: 404 }
       );
     }
+    const companyId = messageRow.company_id;
     if (messageRow.media_type === "text") {
       return NextResponse.json(
         { error: "Mensagem sem midia." },
@@ -122,7 +127,7 @@ export async function GET(
       .eq("id", messageRow.chat_id)
       .single();
     const chatRow = chatData as ChatRow | null;
-    if (!chatRow || chatRow.company_id !== profileRow.company_id) {
+    if (!chatRow || chatRow.company_id !== companyId) {
       return NextResponse.json(
         { error: "Chat nao encontrado." },
         { status: 404 }
@@ -135,7 +140,7 @@ export async function GET(
       .eq("id", chatRow.instance_id)
       .single();
     const instanceRow = instanceData as InstanceRow | null;
-    if (!instanceRow || instanceRow.company_id !== profileRow.company_id) {
+    if (!instanceRow || instanceRow.company_id !== companyId) {
       return NextResponse.json(
         { error: "Instancia nao encontrada." },
         { status: 404 }

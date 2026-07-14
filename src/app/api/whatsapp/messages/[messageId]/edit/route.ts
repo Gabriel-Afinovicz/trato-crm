@@ -144,9 +144,11 @@ export async function PATCH(
     }
 
     const supabaseAdmin = createAdminClient();
-    const companyId = profileRow.company_id;
 
-    const { data: msgData } = await supabaseAdmin
+    // Autoriza pelo ACESSO a mensagem (via RLS) e deriva a empresa dela — e
+    // nao do profile.company_id. Suporta super_admin operando o dominio de um
+    // cliente; operador segue restrito pelo RLS.
+    const { data: msgData } = await supabase
       .from("whatsapp_messages")
       .select(
         "id, company_id, chat_id, evolution_message_id, from_me, body, original_body, edit_count, media_type, sent_at, created_at"
@@ -154,12 +156,13 @@ export async function PATCH(
       .eq("id", id)
       .maybeSingle();
     const msgRow = msgData as MessageRow | null;
-    if (!msgRow || msgRow.company_id !== companyId) {
+    if (!msgRow) {
       return NextResponse.json(
         { error: "Mensagem nao encontrada." },
         { status: 404 }
       );
     }
+    const companyId = msgRow.company_id;
     if (!msgRow.from_me) {
       return NextResponse.json(
         { error: "So e possivel editar mensagens enviadas por voce." },

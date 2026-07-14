@@ -114,9 +114,11 @@ export async function POST(
     }
 
     const supabaseAdmin = createAdminClient();
-    const companyId = profileRow.company_id;
 
-    const { data: msgData } = await supabaseAdmin
+    // Autoriza pelo ACESSO a mensagem (via RLS) e deriva a empresa dela — e
+    // nao do profile.company_id. Assim super_admins operando o dominio de um
+    // cliente reagem normalmente; operador segue restrito pelo RLS.
+    const { data: msgData } = await supabase
       .from("whatsapp_messages")
       .select(
         "id, company_id, chat_id, evolution_message_id, from_me, reactions"
@@ -124,12 +126,13 @@ export async function POST(
       .eq("id", id)
       .maybeSingle();
     const msgRow = msgData as MessageRow | null;
-    if (!msgRow || msgRow.company_id !== companyId) {
+    if (!msgRow) {
       return NextResponse.json(
         { error: "Mensagem nao encontrada." },
         { status: 404 }
       );
     }
+    const companyId = msgRow.company_id;
     if (!msgRow.evolution_message_id) {
       return NextResponse.json(
         { error: "Mensagem sem evolution_message_id; ainda nao sincronizada." },

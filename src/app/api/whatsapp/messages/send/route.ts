@@ -3,7 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { evolution } from "@/lib/evolution/client";
 import { friendlyEvolutionError } from "@/lib/evolution/friendly-error";
-import { phoneToJid, jidToPhone, onlyDigits } from "@/lib/evolution/phone";
+import {
+  phoneToJid,
+  jidToPhone,
+  onlyDigits,
+  siblingJid,
+} from "@/lib/evolution/phone";
 
 interface SendPayload {
   domain?: string;
@@ -84,8 +89,90 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const companyId = profileRow.company_id;
   const supabaseAdmin = createAdminClient();
+
+  // Resolve o destinatario e a EMPRESA efetiva. A empresa vem do recurso alvo
+  // (chat/lead) autorizado via RLS — e nao do profile.company_id. Assim um
+  // super_admin operando o dominio de um cliente age na empresa correta, e um
+  // operador segue restrito a propria empresa (o client de sessao/RLS so
+  // devolve o que ele pode ver). Recurso nulo = inexistente OU sem acesso -> 404.
+  let chatId = body.chatId ?? null;
+  let chatRow: ChatRow | null = null;
+  let targetJid: string | null = null;
+  let targetPhone: string | null = null;
+  let leadId: string | null = null;
+  let companyId: string;
+
+  if (chatId) {
+    const { data } = await supabase
+      .from("whatsapp_chats")
+      .select("id, company_id, instance_id, remote_jid, lead_id")
+      .eq("id", chatId)
+      .maybeSingle();
+    chatRow = data as ChatRow | null;
+    if (!chatRow) {
+      return NextResponse.json({ error: "Chat nao encontrado." }, { status: 404 });
+    }
+    companyId = chatRow.company_id;
+    targetJid = chatRow.remote_jid;
+    targetPhone = jidToPhone(chatRow.remote_jid);
+    leadId = chatRow.lead_id;
+  } else if (body.leadId) {
+    const { data } = await supabase
+      .from("leads")
+      .select("id, company_id, phone, name")
+      .eq("id", body.leadId)
+      .maybeSingle();
+    const lead = data as LeadRow | null;
+    if (!lead) {
+      return NextResponse.json({ error: "Lead nao encontrado." }, { status: 404 });
+    }
+    companyId = lead.company_id;
+    leadId = lead.id;
+    targetJid = phoneToJid(lead.phone);
+    if (!targetJid) {
+      return NextResponse.json(
+        { error: "Lead sem telefone valido cadastrado.", code: "NO_PHONE" },
+        { status: 400 }
+      );
+    }
+    targetPhone = onlyDigits(lead.phone);
+  } else if (body.phone) {
+    // Telefone avulso: sem chat/lead nao ha recurso para derivar a empresa.
+    // Preferimos o dominio informado (resolvido via RLS, que ja autoriza o
+    // acesso); sem dominio, caimos na empresa do proprio usuario logado.
+    const domain = body.domain?.trim();
+    if (domain) {
+      const { data: comp } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("domain", domain)
+        .maybeSingle();
+      const compRow = comp as { id: string } | null;
+      if (!compRow) {
+        return NextResponse.json(
+          { error: "Empresa nao encontrada para este dominio." },
+          { status: 404 }
+        );
+      }
+      companyId = compRow.id;
+    } else {
+      companyId = profileRow.company_id;
+    }
+    targetJid = phoneToJid(body.phone);
+    if (!targetJid) {
+      return NextResponse.json(
+        { error: "Telefone invalido.", code: "NO_PHONE" },
+        { status: 400 }
+      );
+    }
+    targetPhone = onlyDigits(body.phone);
+  } else {
+    return NextResponse.json(
+      { error: "Informe chatId, leadId ou phone." },
+      { status: 400 }
+    );
+  }
 
   const { data: instance } = await supabaseAdmin
     .from("whatsapp_instances")
@@ -112,68 +199,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let chatId = body.chatId ?? null;
-  let chatRow: ChatRow | null = null;
-  let targetJid: string | null = null;
-  let targetPhone: string | null = null;
-  let leadId: string | null = null;
-
-  if (chatId) {
-    const { data } = await supabaseAdmin
-      .from("whatsapp_chats")
-      .select("id, company_id, instance_id, remote_jid, lead_id")
-      .eq("id", chatId)
-      .single();
-    chatRow = data as ChatRow | null;
-    if (!chatRow || chatRow.company_id !== companyId) {
-      return NextResponse.json({ error: "Chat nao encontrado." }, { status: 404 });
-    }
-    targetJid = chatRow.remote_jid;
-    targetPhone = jidToPhone(chatRow.remote_jid);
-    leadId = chatRow.lead_id;
-  } else if (body.leadId) {
-    const { data } = await supabaseAdmin
-      .from("leads")
-      .select("id, company_id, phone, name")
-      .eq("id", body.leadId)
-      .single();
-    const lead = data as LeadRow | null;
-    if (!lead || lead.company_id !== companyId) {
-      return NextResponse.json({ error: "Lead nao encontrado." }, { status: 404 });
-    }
-    leadId = lead.id;
-    targetJid = phoneToJid(lead.phone);
-    if (!targetJid) {
-      return NextResponse.json(
-        { error: "Lead sem telefone valido cadastrado.", code: "NO_PHONE" },
-        { status: 400 }
-      );
-    }
-    targetPhone = onlyDigits(lead.phone);
-  } else if (body.phone) {
-    targetJid = phoneToJid(body.phone);
-    if (!targetJid) {
-      return NextResponse.json(
-        { error: "Telefone invalido.", code: "NO_PHONE" },
-        { status: 400 }
-      );
-    }
-    targetPhone = onlyDigits(body.phone);
-  } else {
-    return NextResponse.json(
-      { error: "Informe chatId, leadId ou phone." },
-      { status: 400 }
-    );
-  }
-
   if (!chatRow && targetJid) {
-    const { data: existingChat } = await supabaseAdmin
+    // Casa tambem a variacao do nono digito (BR): o `phoneToJid` do lead gera
+    // a forma canonica de 13 digitos, mas o chat real pode ter sido criado
+    // pelo webhook/sync na forma "irma" de 12 digitos. Sem isso, criariamos
+    // um chat duplicado e enviariamos para um JID que nao bate com o historico.
+    const candidateJids = [targetJid, siblingJid(targetJid)].filter(
+      (j): j is string => Boolean(j)
+    );
+    const { data: existingRows } = await supabaseAdmin
       .from("whatsapp_chats")
-      .select("id, company_id, instance_id, remote_jid, lead_id")
+      .select("id, company_id, instance_id, remote_jid, lead_id, last_message_at")
       .eq("company_id", companyId)
-      .eq("remote_jid", targetJid)
-      .maybeSingle();
-    chatRow = existingChat as ChatRow | null;
+      .in("remote_jid", candidateJids)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1);
+    chatRow = ((existingRows as (ChatRow & { last_message_at: string | null })[] | null)?.[0] ??
+      null) as ChatRow | null;
+
+    // Envia para o JID que o chat existente ja usa (o que o WhatsApp conhece),
+    // e nao para o derivado do lead — assim a mensagem entra na conversa certa.
+    if (chatRow) {
+      targetJid = chatRow.remote_jid;
+    }
 
     if (!chatRow) {
       const { data: created, error: chatErr } = await supabaseAdmin

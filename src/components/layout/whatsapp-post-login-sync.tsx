@@ -79,7 +79,10 @@ export function WhatsAppPostLoginSync() {
       void fetch("/api/whatsapp/post-login-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        // Envia o dominio para o servidor sincronizar a empresa correta mesmo
+        // quando quem opera e um super_admin (empresa de perfil != empresa do
+        // dominio em uso).
+        body: JSON.stringify({ domain: session.domain }),
         // keepalive permite o request seguir mesmo se o usuario navegar/fechar
         // a aba logo em seguida; o sync e background e nao bloqueia ninguem.
         keepalive: true,

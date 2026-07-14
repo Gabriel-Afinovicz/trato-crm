@@ -199,17 +199,44 @@ export function WhatsAppConnectLoader({
 
     /** Catch-up de login: traz ultimas conversas/mensagens via post-login-sync
      *  (funciona para qualquer usuario do tenant, inclusive operadores). E
-     *  sincrono no servidor — quando resolve, ja podemos revelar. */
+     *  sincrono no servidor — quando resolve, ja podemos revelar.
+     *
+     *  Antes so disparava e revelava, ignorando o resultado: se a chamada
+     *  falhasse por erro transiente (rede instavel, cold start da rota,
+     *  findChats retornando erro momentaneo) a tela sumia com a lista vazia
+     *  — exatamente o "apareceu carregando mas nao carregou nada". Agora
+     *  validamos a resposta e re-tentamos falhas transientes algumas vezes
+     *  antes de liberar. `skipped` (cooldown / ja sincronizado ha pouco por
+     *  outra aba) conta como sucesso: os dados ja estao frescos. */
     async function fireLoginCatchup(): Promise<void> {
-      try {
-        await fetch("/api/whatsapp/post-login-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-          keepalive: true,
-        });
-      } catch {
-        /* erro de rede: libera a aba mesmo assim */
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS && !cancelled; attempt++) {
+        try {
+          const res = await fetch("/api/whatsapp/post-login-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // Envia o dominio para o servidor sincronizar a empresa correta
+            // mesmo quando quem opera e um super_admin (cuja empresa de perfil
+            // difere da empresa do dominio em uso).
+            body: JSON.stringify({ domain }),
+            keepalive: true,
+          });
+          if (res.ok) {
+            const data = (await res.json().catch(() => null)) as
+              | { ok?: boolean; skipped?: boolean }
+              | null;
+            // ok:true (sincronizou ou skip legitimo) -> concluido.
+            // Sem corpo parseavel tambem tratamos como concluido (2xx).
+            if (!data || data.ok !== false) return;
+          }
+          // res nao-ok (503/500) ou ok:false (ex.: findChats falhou):
+          // transiente -> nova tentativa apos backoff.
+        } catch {
+          // erro de rede -> nova tentativa apos backoff
+        }
+        if (attempt < MAX_ATTEMPTS && !cancelled) {
+          await sleep(2_000 * attempt);
+        }
       }
     }
 

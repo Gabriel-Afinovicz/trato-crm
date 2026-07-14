@@ -162,9 +162,17 @@ function sortMessagesAsc(list: WhatsAppMessage[]): WhatsAppMessage[] {
 // Quantidade inicial de mensagens carregadas ao abrir um chat. Mensagens
 // mais antigas ficam "atras" do botao "Carregar mensagens anteriores" no
 // topo do painel — o operador puxa por demanda em vez de pagar o render
-// de centenas de bolhas de uma vez. 30 cobre o contexto recente da maioria
-// das conversas sem causar flash visual ao alinhar o scroll no fim.
-const MESSAGES_PAGE_SIZE = 30;
+// de centenas de bolhas de uma vez. 20 traz as mais recentes e o operador
+// rola para cima para carregar mais 20 por vez, ate o inicio da conversa.
+const MESSAGES_PAGE_SIZE = 20;
+
+// Quantidade buscada da Evolution no clique manual em "Recarregar ultimas
+// mensagens". Usa o teto do endpoint /load-history (50) para trazer o maior
+// volume possivel de mensagens recentes daquele contato de uma vez — util
+// quando o numero mandou varias mensagens enquanto o CRM esteve fechado. As
+// mensagens entram no banco; a exibicao segue a paginacao de 20 (o excedente
+// fica atras do "carregar mais 20").
+const REFRESH_HISTORY_LIMIT = 50;
 
 // Jitter aleatorio aplicado entre envios em rajada para simular digitacao
 // humana e reduzir o risco do WhatsApp marcar o numero como bot. Mensagem
@@ -624,6 +632,37 @@ export function ConversasContent({
     () => chats.find((c) => c.id === activeChatId) ?? null,
     [chats, activeChatId]
   );
+
+  // Deep-link para um chat fora da primeira pagina (ex.: chat recem-criado
+  // pelo redirecionamento do lead, com last_message_at nulo, ou uma conversa
+  // antiga alem do top-30 carregado no server). Sem isso, `activeChat` fica
+  // null e o painel direito mostra "Selecione uma conversa" mesmo com a URL
+  // apontando para ?chat=<id> — o operador chega na aba mas nada abre.
+  // Buscamos o chat pontualmente e injetamos na lista para destravar a UI
+  // (render do painel, envio, historico).
+  useEffect(() => {
+    if (!activeChatId) return;
+    if (chats.some((c) => c.id === activeChatId)) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("whatsapp_chats")
+        .select("*")
+        .eq("id", activeChatId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (cancelled) return;
+      const chat = data as WhatsAppChat | null;
+      if (!chat) return;
+      setChats((prev) =>
+        prev.some((c) => c.id === chat.id) ? prev : [chat, ...prev]
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChatId, chats, companyId]);
 
   const filteredChats = useMemo(() => {
     if (searchResults !== null) return searchResults;
@@ -2160,10 +2199,16 @@ export function ConversasContent({
     setRefreshingHistory(true);
     setRefreshError(null);
     try {
+      // Puxa o maximo que o endpoint permite (cap 50) — ao clicar em atualizar
+      // o operador quer TODAS as ultimas mensagens acumuladas daquele contato,
+      // nao apenas a janela padrao. Historico mais antigo continua acessivel
+      // via "carregar mensagens anteriores". O endpoint tambem cruza o JID
+      // classico com o par `@lid` para nao perder mensagens de contatos que
+      // migraram para o modo de privacidade do WhatsApp.
       const res = await fetch("/api/whatsapp/messages/load-history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId, limit: MESSAGES_PAGE_SIZE }),
+        body: JSON.stringify({ chatId, limit: REFRESH_HISTORY_LIMIT }),
       });
       if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as { error?: string };

@@ -317,33 +317,32 @@ async function handlePost(req: NextRequest) {
     return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("id, company_id, role")
-    .eq("auth_id", user.id)
-    .single();
-  const profileRow = profile as
-    | { id: string; company_id: string; role: string }
-    | null;
-  if (!profileRow) {
-    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
-  }
-
   const supabaseAdmin = createAdminClient();
-  const companyId = profileRow.company_id;
 
-  const { data: chatData } = await supabaseAdmin
+  // Autoriza pelo ACESSO ao chat (via RLS), e nao pela company do perfil.
+  // A aba Conversas carrega os chats com o client de sessao (RLS): um
+  // super_admin operando no dominio de OUTRA empresa — ou um operador na
+  // propria — enxerga chats cujo `company_id` difere do seu
+  // `profile.company_id`. Buscar o chat aqui pelo mesmo client de sessao
+  // garante que so prossegue quem o RLS ja autoriza a ver; a company efetiva
+  // vem do proprio chat.
+  //
+  // Antes comparavamos com `profile.company_id` (empresa do usuario logado),
+  // o que retornava "Chat nao encontrado" para super_admins visualizando o
+  // dominio de um cliente, mesmo o chat existindo.
+  const { data: chatData } = await supabase
     .from("whatsapp_chats")
     .select("id, company_id, instance_id, remote_jid")
     .eq("id", chatId)
-    .single();
+    .maybeSingle();
   const chatRow = chatData as ChatRow | null;
-  if (!chatRow || chatRow.company_id !== companyId) {
+  if (!chatRow) {
     return NextResponse.json(
       { error: "Chat nao encontrado." },
       { status: 404 }
     );
   }
+  const companyId = chatRow.company_id;
 
   const { data: instanceData } = await supabaseAdmin
     .from("whatsapp_instances")
