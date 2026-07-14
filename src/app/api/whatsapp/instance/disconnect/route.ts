@@ -50,19 +50,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyDisconnected: true });
   }
 
-  // Desconectar de verdade exige zerar o cache do Baileys na Evolution.
-  // Apenas `logout` mantem credenciais e permitiria a Evolution reabrir
-  // a sessao no proximo connect sem gerar QR. `resetInstance` faz
-  // logout + poll-ate-close + delete, garantindo que o proximo connect
-  // passe pelo fluxo de QR novamente.
+  // Desconectar de verdade exige REMOVER a instancia da Evolution (nao so
+  // deslogar): apenas `logout` mantem credenciais e permitiria a Evolution
+  // reabrir a sessao no proximo connect SEM gerar QR. Usamos
+  // `forceDeleteInstance` (logout + delete em loop, confirmando via
+  // fetchInstances que a instancia sumiu) — e nao o `resetInstance` (delete
+  // unico, sem verificacao) — porque o delete da Evolution v2.3.x costuma
+  // falhar na primeira tentativa e deixaria uma instancia orfa. Essa orfa
+  // fazia o `createInstance` da reconexao retornar 403 ("name already in
+  // use"), quebrando o fluxo de novo QR.
   if (evolution.isConfigured()) {
     try {
-      await evolution.resetInstance(instanceRow.instance_name);
+      const removed = await evolution.forceDeleteInstance(
+        instanceRow.instance_name
+      );
+      if (!removed) {
+        console.warn(
+          "[whatsapp/disconnect] instancia nao confirmou remocao na Evolution",
+          { instanceName: instanceRow.instance_name }
+        );
+      }
     } catch (err) {
       // Falha no servico externo nao deve impedir a desconexao local: a
       // proxima reconexao detectara estado inconsistente e refazera o
       // reset. Logamos para diagnostico interno.
-      console.error("[whatsapp/disconnect] upstream reset failed", err);
+      console.error("[whatsapp/disconnect] upstream delete failed", err);
     }
   }
 
